@@ -71,7 +71,7 @@ function fixModel(m) {
   });
 }
 export const MODELS = ['tree.gltf', 'bush.gltf', 'tank.gltf', 'tankhead.gltf', 'target.gltf', 'UGV.gltf',
-                       'UGVdes.gltf', 'frag.gltf', 'drone.gltf'];
+                       'UGVdes.gltf', 'frag.gltf', 'drone.gltf', 'inflat.gltf'];
 export const DEFAULT_SCALE = { 'tree.gltf': 0.95, 'bush.gltf': 1.5, 'tank.gltf': 2.55, 'target.gltf': 1.5 };
 const protoCache = {};
 export function loadProto(file, cb) {
