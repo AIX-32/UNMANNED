@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UNMANNED</title>
+  <meta name="description" content="A retro pixel FPS in your browser. Fight drones, UGVs and bosses, or 1v1 friends over P2P.">
+  <meta name="theme-color" content="#000000">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="UNMANNED">
+  <meta property="og:description" content="A retro pixel FPS in your browser. Fight drones, UGVs and bosses, or 1v1 friends over P2P.">
+  <meta property="og:url" content="https://aix-32.github.io/UNMANNED/">
+  <meta property="og:image" content="https://aix-32.github.io/UNMANNED/assets/og-image.png">
+  <meta property="og:image:width" content="1882">
+  <meta property="og:image:height" content="1021">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Tomorrow:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      overflow: hidden;
+      background: #000;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #info {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      z-index: 10;
+      color: #ffffff;
+      font-family: Tomorrow, monospace;
+      font-size: 11px;
+    }
+
+    #prompt {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #aaa;
+      font-family: Tomorrow, monospace;
+      font-size: 14px;
+      z-index: 10;
+      text-align: center;
+      pointer-events: none;
+      font-weight: 1300;
+    }
+
+    #loader {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 40;
+    }
+
+    #loaderText {
+      color: #aaa;
+      font-family: Tomorrow, monospace;
+      font-weight: 100;
+      font-size: 16px;
+      letter-spacing: 0.3em;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="info">UNMANNED v0.9</div>
+  <div id="prompt">CLICK TO START</div>
+  <div id="loader">
+    <div id="loaderText">LOADING</div>
+  </div>
+  <script>
+
+    (async function () {
+      var idb = await import('./idb.js');
+      var keys = [
+        'gault_draft', 'gault_playing', 'gault_custom_lib',
+        'gault_cc', 'gault_owned', 'gault_loadout',
+        'gault_laptop', 'gault_aimassist', 'gault_battery',
+        'gault_campaign', 'gault_hpboxes', 'gault_name', 'gault_showtags'
+      ];
+      await idb.load(keys);
+
+      var n = new URLSearchParams(location.search).get('map');
+      if (n === '__draft') {
+        var j = idb.get('gault_draft');
+        if (j) window.GAULT_MAP_JSON = j;
+      } else if (n === '__custom') {
+        var c = idb.get('gault_playing');
+        if (c) window.GAULT_MAP_JSON = c;
+        else window.GAULT_MAP_URL = 'maps/hub.umm';
+      } else if (n) {
+        window.GAULT_MAP_URL = 'maps/' + n + '.umm';
+      } else {
+        window.GAULT_MAP_URL = 'maps/hub.umm';
+      }
+
+      await import('./src/main.js');
+    })();
+
+  </script>
+  <script src="vendor/three.min.js"></script>
+  <script src="vendor/GLTFLoader.js"></script>
+</body>
+
+</html>

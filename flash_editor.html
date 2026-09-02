@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Flash Editor</title>
+<style>
+  body { margin:0; font-family:monospace; background:#111; color:#ddd; display:flex; }
+  #view { flex:1; }
+  #panel { width:320px; padding:12px; background:#1a1a1a; height:100vh; box-sizing:border-box; font-size:12px; }
+  h3 { font-size:13px; margin:10px 0 4px; color:#aaa; }
+  textarea { width:100%; height:140px; background:#000; color:#8f8; border:1px solid #333; font-size:11px; box-sizing:border-box; }
+  button { width:100%; padding:6px; margin-top:4px; }
+  .key { color:#8f8; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="panel">
+  <div>Weapon: <b id="wname"></b> <span style="color:#666">(1/2 to switch)</span></div>
+  <div>View: <b id="vname"></b> <span style="color:#666">(V to cycle)</span></div>
+  <h3>Controls</h3>
+  <div><span class="key">drag</span> move in view plane</div>
+  <div><span class="key">wheel</span> size</div>
+  <div><span class="key">shift+wheel</span> depth (Z, along barrel)</div>
+  <div><span class="key">F</span> test-fire pulse</div>
+  <div id="vhint" style="color:#666;margin-top:4px;"></div>
+  <h3>JSON</h3>
+  <textarea id="out" readonly></textarea>
+  <button onclick="navigator.clipboard.writeText(document.getElementById('out').value)">Copy JSON</button>
+</div>
+<script src="vendor/three.min.js"></script>
+<script src="vendor/GLTFLoader.js"></script>
+<script>
+
+const GUN_POS = new THREE.Vector3(-0.75, -1.25, -1.5);
+const GUN_ROT = { x: 0.05, y: 0.12, z: -0.07 };
+const GUN_SCALE = 2.85;
+const STOCK_Z = -0.5 * GUN_SCALE;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1512);
+const camera = new THREE.PerspectiveCamera(70, (innerWidth-320)/innerHeight, 0.01, 50);
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('view'), antialias:true });
+renderer.setSize(innerWidth-320, innerHeight);
+
+
+scene.add(new THREE.AmbientLight(0x403030, 0.5));
+const key = new THREE.DirectionalLight(0xff6a2a, 1.1);
+key.position.set(20, 40, 10);
+scene.add(key);
+scene.add(new THREE.HemisphereLight(0x2a3545, 0x1a1410, 0.5));
+
+const pivot = new THREE.Group();
+pivot.position.copy(GUN_POS);
+scene.add(pivot);
+
+function fixGun(model) {
+  model.traverse(function(o) {
+    if (o.isMesh && o.material && o.material.map) {
+      o.material.map.encoding = THREE.LinearEncoding;
+      o.material.needsUpdate = true;
+    }
+  });
+}
+
+const WEAPONS = ['Sten', 'Shutgun', 'WGS-25'];
+let curW = 0;
+const guns = {};
+const GUN_SCALE_M = { 'WGS-25': 1.3 };
+const state = {};
+WEAPONS.forEach(n => state[n] = { pos: [0.15, 0, -1.5], size: 0.5 });
+
+const loader = new THREE.GLTFLoader();
+loader.load('assets/models/assualt.gltf', function(g) {
+  fixGun(g.scene);
+  guns['Sten'] = g.scene;
+});
+loader.load('assets/models/shutgun.gltf', function(g) {
+  fixGun(g.scene);
+  guns['Shutgun'] = g.scene;
+});
+loader.load('assets/models/m4.gltf', function(g) {
+  fixGun(g.scene);
+  guns['WGS-25'] = g.scene;
+});
+
+const tex = new THREE.TextureLoader().load('assets/textures/flash.png');
+const flashMat = new THREE.SpriteMaterial({ map: tex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+const flash = new THREE.Sprite(flashMat);
+pivot.add(flash);
+
+
+const gizmo = new THREE.Group();
+[[1,0,0,0xff4444],[0,1,0,0x44ff44],[0,0,1,0x4488ff]].forEach(function(a) {
+  const geo = new THREE.BufferGeometry();
+  const d = 0.25;
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([-a[0]*d,-a[1]*d,-a[2]*d, a[0]*d,a[1]*d,a[2]*d], 3));
+  gizmo.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: a[3] })));
+});
+pivot.add(gizmo);
+
+
+
+const VIEWS = [
+  { name: 'GAME', ax: [1,0,0], ay: [0,-1,0],
+    place: function() { camera.position.set(0,0,0); camera.up.set(0,1,0); camera.lookAt(0,0,-1); } },
+  { name: 'SIDE', ax: [0,0,-1], ay: [0,-1,0],
+    place: function(t) { camera.position.copy(t).add(new THREE.Vector3(3,0,0)); camera.up.set(0,1,0); camera.lookAt(t); } },
+  { name: 'TOP', ax: [1,0,0], ay: [0,0,1],
+    place: function(t) { camera.position.copy(t).add(new THREE.Vector3(0,3,0)); camera.up.set(0,0,-1); camera.lookAt(t); } },
+];
+let curV = 0;
+function setView(i) {
+  curV = i;
+  document.getElementById('vname').textContent = VIEWS[i].name;
+  document.getElementById('vhint').textContent =
+    i === 0 ? 'what the player sees' :
+    i === 1 ? 'align Y (height) and Z (depth)' :
+              'align X (lateral) and Z (depth)';
+}
+
+function mount() {
+  for (const n of WEAPONS) if (guns[n]) guns[n].visible = false;
+  const name = WEAPONS[curW], g = guns[name];
+  if (!g) return;
+  g.visible = true;
+  g.scale.setScalar(GUN_SCALE * (GUN_SCALE_M[name] || 1));
+  g.position.set(0, 0, STOCK_Z);
+  g.rotation.set(GUN_ROT.x, GUN_ROT.y, GUN_ROT.z);
+  pivot.add(g);
+}
+function applyState() {
+  const s = state[WEAPONS[curW]];
+  flash.position.fromArray(s.pos);
+  gizmo.position.copy(flash.position);
+  flash.scale.set(s.size, s.size, 1);
+}
+function switchW(i) { curW = i; mount(); applyState(); document.getElementById('wname').textContent = WEAPONS[curW]; }
+
+addEventListener('keydown', e => {
+  if (e.code === 'Digit1') switchW(0);
+  if (e.code === 'Digit2') switchW(1);
+  if (e.code === 'Digit3') switchW(2);
+  if (e.code === 'KeyF') pulse = 1;
+  if (e.code === 'KeyV' && !e.repeat) setView((curV + 1) % VIEWS.length);
+});
+
+
+let drag = false, lastX = 0, lastY = 0;
+const viewEl = document.getElementById('view');
+viewEl.addEventListener('mousedown', e => { drag = true; lastX = e.clientX; lastY = e.clientY; });
+addEventListener('mouseup', () => drag = false);
+addEventListener('mousemove', e => {
+  if (!drag || e.target !== viewEl) return;
+  const dist = camera.position.distanceTo(flash.getWorldPosition(new THREE.Vector3()));
+  const wpp = 2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / viewEl.clientHeight;
+  const v = VIEWS[curV], s = state[WEAPONS[curW]];
+  s.pos[0] += ((e.clientX - lastX) * v.ax[0] - (e.clientY - lastY) * v.ay[0]) * wpp;
+  s.pos[1] += ((e.clientX - lastX) * v.ax[1] - (e.clientY - lastY) * v.ay[1]) * wpp;
+  s.pos[2] += ((e.clientX - lastX) * v.ax[2] - (e.clientY - lastY) * v.ay[2]) * wpp;
+  lastX = e.clientX; lastY = e.clientY;
+  applyState();
+});
+viewEl.addEventListener('wheel', e => {
+  e.preventDefault();
+  const s = state[WEAPONS[curW]];
+  if (e.shiftKey) s.pos[2] += e.deltaY * 0.002;
+  else {
+    s.size = Math.max(0.05, s.size * (e.deltaY > 0 ? 0.95 : 1.05));
+  }
+  applyState();
+}, { passive: false });
+
+addEventListener('resize', () => {
+  camera.aspect = (innerWidth-320)/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth-320, innerHeight);
+});
+
+let pulse = 0;
+function dump() {
+  const o = {};
+  WEAPONS.forEach(n => o[n] = {
+    pos: state[n].pos.map(v => +v.toFixed(3)),
+    size: +state[n].size.toFixed(3)
+  });
+  document.getElementById('out').value = JSON.stringify(o, null, 1);
+}
+function update() {
+  requestAnimationFrame(update);
+
+  if (!guns[WEAPONS[curW]] || !guns[WEAPONS[curW]].parent) mount();
+  VIEWS[curV].place(flash.getWorldPosition(new THREE.Vector3()));
+  pulse *= 0.9;
+  flashMat.opacity = 0.85 + Math.min(pulse, 1) * 0.15 * (Math.random() > 0.4 ? 1 : 0);
+  dump();
+  renderer.render(scene, camera);
+}
+switchW(0);
+setView(0);
+update();
+</script>
+</body>
+</html>
