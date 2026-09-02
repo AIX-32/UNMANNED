@@ -14,19 +14,20 @@ import { updateCml } from './cml.js';
 import { updateIdent } from './ident.js';
 import { updateRadar } from './radar.js';
 import { updatePvp } from './pvp.js';
+import './signalling.js';
 import './input.js';
 import { showWin, updateHubIntro, updateStoryCutscene } from './menu.js';
 import { TICK_DT, consumeTicks } from './tick.js';
 
 function getForward() {
-  const f = new THREE.Vector3(0, 0, -1);
+  const f = _tFwd.set(0, 0, -1);
   f.applyQuaternion(camera.quaternion);
   f.y = 0;
   return f.normalize();
 }
 
 function getRight() {
-  const r = new THREE.Vector3(1, 0, 0);
+  const r = _tRight.set(1, 0, 0);
   r.applyQuaternion(camera.quaternion);
   r.y = 0;
   return r.normalize();
@@ -54,6 +55,15 @@ let airFloor = 0;
 const vel = new THREE.Vector3();
 const wallRay = new THREE.Raycaster();
 const clock = new THREE.Clock();
+
+
+const _tV = new THREE.Vector3();
+const _tV2 = new THREE.Vector3();
+const _tUp = new THREE.Vector3();
+const _tFwd = new THREE.Vector3();
+const _tRight = new THREE.Vector3();
+const _aimEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _swayQuat = new THREE.Quaternion();
 
 
 
@@ -260,7 +270,7 @@ function updatePlayer(dt) {
     if (S.keys['KeyD']) vel.addScaledVector(right, AIR_ACCEL * dt * MOVE_STRAFE);
     if (S.keys['KeyA']) vel.addScaledVector(right, -AIR_ACCEL * dt * MOVE_STRAFE);
 
-    const horiz = new THREE.Vector3(vel.x, 0, vel.z);
+    const horiz = _tV2.set(vel.x, 0, vel.z);
     if (horiz.length() > MAX_AIR_SPEED) horiz.setLength(MAX_AIR_SPEED);
     vel.x = horiz.x; vel.z = horiz.z;
     vel.multiplyScalar(Math.pow(0.98, dt * 60));
@@ -295,7 +305,7 @@ function updateCameraRig(dt) {
     if (dy > SUPINE_YAW_RANGE) S.euler.y = supineYaw + SUPINE_YAW_RANGE;
     else if (dy < -SUPINE_YAW_RANGE) S.euler.y = supineYaw - SUPINE_YAW_RANGE;
   }
-  const aimEuler = S.euler.clone();
+  const aimEuler = _aimEuler.copy(S.euler);
 
   const kickShare = S.straf ? STRAF_CAM_SHARE : 1;
   aimEuler.x = THREE.MathUtils.clamp(aimEuler.x + S.recoil.x * kickShare + (S.straf ? 0 : S.shakeX), -Math.PI / 2.2, S.supine ? Math.PI * 0.62 : Math.PI / 2.2);
@@ -333,8 +343,9 @@ function updateCameraRig(dt) {
   }
 
 
-  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const fwd = _tV.set(0, 0, -1).applyQuaternion(camera.quaternion);
   wallRay.set(camera.position, fwd);
+  wallRay.far = 3;
   const wh = wallRay.intersectObjects(scene.children, true);
   let nearest = 1.3;
   for (let i = 0; i < wh.length; i++) {
@@ -351,7 +362,7 @@ function updateViewmodel(dt, now, isMoving) {
   muzzleMat.opacity *= Math.pow(0.00001, dt);
   if (muzzleMat.opacity < 0.02) getMuzzleFlash().visible = false;
   const worldFlash = getWorldFlash();
-  worldFlash.position.copy(camera.position).addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), 1.5);
+  worldFlash.position.copy(camera.position).addScaledVector(_tV.set(0, 0, -1).applyQuaternion(camera.quaternion), 1.5);
   worldFlash.intensity *= Math.pow(0.0001, dt);
 
 
@@ -465,13 +476,12 @@ function updateViewmodel(dt, now, isMoving) {
   S.sway.y += (THREE.MathUtils.clamp(-look[1] * 0.0012, -0.07, 0.07) - S.sway.y) * k;
 
 
-  const gunOffset = new THREE.Vector3();
-  gunOffset.set(gx, gy, gz).applyQuaternion(camera.quaternion);
-  const rightVec = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-  const upVec = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  const gunOffset = _tV.set(gx, gy, gz).applyQuaternion(camera.quaternion);
+  const rightVec = _tV2.set(1, 0, 0).applyQuaternion(camera.quaternion);
+  const upVec = _tUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
   recoilPivot.position.copy(camera.position).add(gunOffset).addScaledVector(rightVec, S.sway.x).addScaledVector(upVec, S.sway.y);
-  const swayEuler = new THREE.Euler(S.sway.y * 1.6, S.sway.x * 1.6, 0, 'YXZ');
-  const q = new THREE.Quaternion().setFromEuler(swayEuler);
+  _aimEuler.set(S.sway.y * 1.6, S.sway.x * 1.6, 0, 'YXZ');
+  const q = _swayQuat.setFromEuler(_aimEuler);
   recoilPivot.quaternion.copy(camera.quaternion).multiply(q);
 }
 

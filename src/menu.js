@@ -10,6 +10,7 @@ import { WEAPONS, getOwned, buyGun, isOwned, getLoadout, setLoadoutSlot, boxCoun
 import { buyBattery } from './radar.js';
 import { startHostUi, startJoinUi, netOpen, getStatus as sessionStatus, onStatus as netOnStatus, onNetVisibility, myName, randomName, pasteName, endSession } from './net.js';
 import { pvpMaps, hostPickMap, hostResetPick, guestReady, hostStart, isHost, guestHasReady, guestHasSent, pickedMap, setLobbyRedraw, PVP_MODE, pvpLobbyActive, setRemoteTags } from './pvp.js';
+import { onlineList, onlineJoin } from './signalling.js';
 import * as idb from '../idb.js';
 
 
@@ -120,6 +121,9 @@ const menuBtns = [];
 const winBtns = [];
 const storyBtns = [];
 let winState = { hasNext: false, cur: '' };
+
+
+const mp = { mode: 'choose', servers: [], err: '', joining: false, connecting: '' };
 
 const TITLE_FONT = '500 64px Tomorrow,monospace';
 const BTN_FONT = '500 26px Tomorrow,monospace';
@@ -257,19 +261,19 @@ function panelRow(btns, y, name, btnsSpec) {
 }
 
 function drawMenu() {
-  if (view !== drawnView) { drawnView = view; boardReopen(mesh); }
+  const mpKey = view === 'multiplayer' ? 'multiplayer:' + mp.mode : view;
+  if (mpKey !== drawnView) { drawnView = mpKey; boardReopen(mesh); }
   ctx.clearRect(0, 0, CW, CH);
   menuBtns.length = 0;
   if (view === 'hub') {
 
     hubTitle();
     if (!adMesh.visible) boardShow(adMesh);
-    panelBtn(menuBtns, 60, 96, 380, 58, 'CAMPAIGN', function() { view = 'campaign'; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 160, 380, 58, 'MULTIPLAYER', function() { view = 'multiplayer'; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 224, 380, 58, 'LVL PLAY', function() { view = 'lvlplay'; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 288, 380, 58, 'CUSTOM', function() { view = 'custom'; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 352, 380, 58, 'SHOP', function() { view = 'shop'; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 416, 380, 58, 'LOADOUT', function() { view = 'loadout'; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 170, 380, 58, 'CAMPAIGN', function() { view = 'campaign'; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 234, 380, 58, 'MULTIPLAYER', function() { view = 'multiplayer'; mp.mode = 'choose'; mp.err = ''; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 298, 380, 58, 'LVL PLAY', function() { view = 'lvlplay'; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 362, 380, 58, 'CUSTOM', function() { view = 'custom'; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 426, 380, 58, 'LOADOUT', function() { view = 'loadout'; drawMenu(); }, false, 30);
     ctx.fillStyle = 'rgba(255,255,255,1)';
     ctx.font = '700 20px Tomorrow,monospace';
     ctx.textAlign = 'right';
@@ -286,7 +290,11 @@ function drawMenu() {
     textShadow(false);
   } else {
     if (adMesh.visible) boardHide(adMesh);
-    panelTitle(view.toUpperCase());
+    if (view === 'multiplayer' && sessionStatus().state !== 'connected') {
+      panelTitle(mp.mode === 'online' ? 'ONLINE' : (mp.mode === 'lan' ? 'LAN' : 'MULTIPLAYER'));
+    } else {
+      panelTitle(view.toUpperCase());
+    }
     if (view === 'campaign') {
       let y = 150;
       CAMPAIGN.forEach(function(lvl, i) {
@@ -339,7 +347,7 @@ function drawMenu() {
           addCc(-BOX_PRICE); buyBox(); drawMenu();
         } },
       ]);
-      panelBtn(menuBtns, 60, 452, 380, 44, 'BACK', function() { view = 'hub'; drawMenu(); });
+      panelBtn(menuBtns, 60, 452, 380, 44, 'BACK', function() { view = 'loadout'; drawMenu(); });
     } else if (view === 'loadout') {
 
       ctx.fillStyle = '#fff';
@@ -359,7 +367,8 @@ function drawMenu() {
         y += 56;
       }
       panelRow(menuBtns, y, '5  HP BOX ×' + boxCount(), []);
-      panelBtn(menuBtns, 60, 452, 380, 44, 'BACK', function() { view = 'hub'; drawMenu(); });
+      panelBtn(menuBtns, 60, 452, 200, 44, 'SHOP', function() { view = 'shop'; drawMenu(); }, false, 20);
+      panelBtn(menuBtns, 280, 452, 200, 44, 'BACK', function() { view = 'hub'; drawMenu(); }, false, 20);
     } else if (view === 'custom') {
       panelBtn(menuBtns, 60, 150, 380, 56, 'UPLOAD MAP (.umm)', function() { fileInput.click(); }, false, 22);
       panelBtn(menuBtns, 60, 222, 380, 56, 'OPEN STUDIO', goStudio, false, 22);
@@ -388,6 +397,10 @@ function drawMenu() {
       panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { view = 'hub'; drawMenu(); });
     } else if (view === 'multiplayer') {
       drawMultiplayer();
+    } else if (view === 'customize') {
+      nameRow(180);
+      toggleTagsRow(250);
+      panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { view = 'multiplayer'; mp.mode = 'choose'; drawMenu(); }, false, 26);
     }
   }
   tex.needsUpdate = true;
@@ -396,22 +409,7 @@ function drawMenu() {
 
 let pvpKills = 10;
 function drawMultiplayer() {
-  ctx.fillStyle = '#fff';
-  ctx.font = '700 24px Tomorrow,monospace';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  textShadow(true);
-  const st = sessionStatus();
-  ctx.fillText(st.state === 'connected' ? 'SESSION: CONNECTED — 2 PLAYERS' : (st.role ? 'SESSION: ' + st.state.toUpperCase() : 'NO SESSION'), 60, 108);
-  textShadow(false);
-  if (st.state !== 'connected') {
-    panelBtn(menuBtns, 60, 140, 380, 58, 'HOST GAME', startHostUi, false, 26);
-    panelBtn(menuBtns, 60, 206, 380, 58, 'JOIN GAME', startJoinUi, false, 26);
-    nameRow();
-    toggleTagsRow();
-    panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { view = 'hub'; drawMenu(); });
-    return;
-  }
+  if (sessionStatus().state !== 'connected') { drawMpIdle(); return; }
 
   if (isHost()) {
     if (!pickedMap()) {
@@ -476,32 +474,119 @@ function drawMultiplayer() {
   }
 }
 
-function nameRow() {
+
+
+function mpLine(txt, y, color) {
+  ctx.fillStyle = color || 'rgba(255,255,255,0.9)';
+  ctx.font = '500 22px Tomorrow,monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  textShadow(true);
+  ctx.fillText(txt, 60, y);
+  textShadow(false);
+}
+
+function mpBackHub() {
+  panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { view = 'hub'; drawMenu(); });
+}
+
+function drawMpIdle() {
+  if (mp.joining) {
+    const sig = window.__gaultSig || {};
+    const rl = sig.role && sig.role() || '';
+    const last = sig.last && sig.last() || '';
+    mpLine(rl ? 'IN LOBBY  (' + (rl === 'host' ? 'HOST' : 'GUEST') + ')' : 'CONNECTING TO  ' + mp.connecting + ' …', 150);
+    mpLine('role: ' + (rl || 'none yet') + '   ' + (last || ''), 190, 'rgba(255,255,255,0.7)');
+    panelBtn(menuBtns, 60, 240, 380, 56, 'CANCEL', function() {
+      mp.joining = false; endSession(); mp.err = ''; drawMenu();
+    }, false, 26);
+    mpBackHub();
+    return;
+  }
+  if (mp.err) mpLine(mp.err, 500, '#f88');
+
+  if (mp.mode === 'choose') {
+    panelBtn(menuBtns, 60, 150, 380, 58, 'ONLINE', function() {
+      mp.mode = 'online'; mp.servers = []; mp.err = '';
+      loadOnlineList();
+      drawMenu();
+    }, false, 24);
+    panelBtn(menuBtns, 60, 224, 380, 58, 'LAN', function() { mp.mode = 'lan'; mp.err = ''; drawMenu(); }, false, 24);
+    panelBtn(menuBtns, 60, 300, 300, 58, 'CUSTOMIZE', function() { view = 'customize'; drawMenu(); }, false, 24);
+    mpBackHub();
+  } else if (mp.mode === 'online') {
+    let y = 150;
+    mp.servers.forEach(function(e) {
+      const lock = e.password ? ' [lock]' : '';
+      const locked = !!e.password;
+      panelRow(menuBtns, y, e.name + '  ·  ' + (e.map || '?') + '  ·  ' + (e.mode || '') + lock, [
+        { x: 700, w: 180, label: locked ? 'LOCKED' : 'JOIN', dim: locked,
+          fn: locked ? null : function() { pickOnlineServer(e); } },
+      ]);
+      y += 52;
+    });
+    if (!mp.servers.length) mpLine('NO SERVERS', y + 6, 'rgba(255,255,255,0.6)');
+    panelBtn(menuBtns, 60, 440, 380, 44, 'REFRESH', function() { loadOnlineList(); drawMenu(); }, false, 20);
+    panelBtn(menuBtns, 456, 440, 400, 44, 'BACK', function() { mp.mode = 'choose'; drawMenu(); }, false, 20);
+  } else {
+    panelBtn(menuBtns, 60, 160, 380, 58, 'HOST GAME', startHostUi, false, 24);
+    panelBtn(menuBtns, 60, 226, 380, 58, 'JOIN GAME', startJoinUi, false, 24);
+    panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { mp.mode = 'choose'; drawMenu(); }, false, 26);
+  }
+}
+
+function pickOnlineServer(e) {
+  mp.joining = true;
+  mp.connecting = e.name;
+  mp.err = '';
+  endSession();
+  onlineJoin(e.ws, e.id, '', undefined, function(errMsg) {
+    mp.joining = false;
+    mp.mode = 'online';
+    mp.err = 'CONNECTION FAILED: ' + errMsg;
+    if (view === 'multiplayer') drawMenu();
+  });
+  drawMenu();
+}
+
+function loadOnlineList() {
+  mp.err = '';
+  onlineList().then(function(list) {
+    mp.servers = list;
+    if (view === 'multiplayer' && !mp.joining) drawMenu();
+  }).catch(function(err) {
+    mp.err = 'CANNOT LOAD SERVER LIST: ' + (err && err.message ? err.message : err);
+    mp.servers = [];
+    if (view === 'multiplayer' && !mp.joining) drawMenu();
+  });
+}
+
+function nameRow(y) {
   ctx.fillStyle = '#fff';
   ctx.font = '700 24px Tomorrow,monospace';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   textShadow(true);
-  ctx.fillText('NAME:  ' + myName(), 60, 306);
+  ctx.fillText('NAME:  ' + myName(), 60, y + 24);
   textShadow(false);
-  panelBtn(menuBtns, 456, 282, 200, 48, 'PASTE NAME', function() {
+  panelBtn(menuBtns, 456, y, 200, 48, 'PASTE NAME', function() {
     pasteName().then(function() { drawMenu(); }).catch(function() { drawMenu(); });
   }, false, 20);
-  panelBtn(menuBtns, 668, 282, 200, 48, 'RANDOM', function() { randomName(); drawMenu(); }, false, 20);
+  panelBtn(menuBtns, 668, y, 200, 48, 'RANDOM', function() { randomName(); drawMenu(); }, false, 20);
 }
 
 
 const TAGS_KEY = 'gault_showtags';
-function toggleTagsRow() {
+function toggleTagsRow(y) {
   const on = idb.get(TAGS_KEY) !== '0';
   ctx.fillStyle = '#fff';
   ctx.font = '700 24px Tomorrow,monospace';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   textShadow(true);
-  ctx.fillText('NAME TAGS:  ' + (on ? 'ON' : 'OFF'), 60, 366);
+  ctx.fillText('NAME TAGS:  ' + (on ? 'ON' : 'OFF'), 60, y + 24);
   textShadow(false);
-  panelBtn(menuBtns, 456, 342, 200, 48, on ? 'HIDE' : 'SHOW', function() {
+  panelBtn(menuBtns, 456, y, 200, 48, on ? 'HIDE' : 'SHOW', function() {
     idb.set(TAGS_KEY, on ? '0' : '1');
     setRemoteTags(!on);
     drawMenu();
@@ -509,7 +594,15 @@ function toggleTagsRow() {
 }
 
 
-netOnStatus(function() { if (S.hub && view === 'multiplayer') drawMenu(); });
+netOnStatus(function(s) {
+  if (S.hub && view === 'multiplayer') drawMenu();
+  if (s && s.state === 'failed' && mp.joining) {
+    mp.joining = false;
+    mp.mode = 'online';
+    mp.err = 'CONNECTION FAILED';
+    drawMenu();
+  }
+});
 
 
 
@@ -992,4 +1085,14 @@ window.__gaultMenu = {
   storyData: function() { return S.storyData; },
   labels: function() { return menuBtns.concat(winBtns).map(function(b) { return b.label; }); },
   click: function(label) { var b = menuBtns.concat(winBtns).find(function(x) { return x.label === label; }); if (b && b.fn) b.fn(); },
+
+
+  lobby: function(name) {
+    view = 'multiplayer';
+    mp.mode = 'choose';
+    mp.joining = true;
+    mp.connecting = name || '';
+    mp.err = '';
+    drawMenu();
+  },
 };
