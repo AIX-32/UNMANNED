@@ -18,7 +18,7 @@ const CANVAS_H = 512;
 const BOARD_W = 2.2;
 const BOARD_H = 1.1;
 const NAME_MAX_LEN = 16;
-const CONNECTION_TIMEOUT_MS = 30000;
+const CONNECTION_TIMEOUT_MS = 120000;
 
 
 
