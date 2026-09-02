@@ -171,8 +171,65 @@ class Peer {
   }
 }
 
+// RelayPeer: the ONLINE (server-forwarded) transport. Same surface as Peer
+// (send/status/onStatus/onMessage/close) so pvp/lobby/name-sync are untouched,
+// but there is NO WebRTC/ICE/NAT — every outbound payload goes to the relay
+// server's WS, which forwards it to the other player. `io` = { outbound(obj),
+// dispose() } supplied by signalling.js over its open WebSocket.
+class RelayPeer {
+  constructor(role, io) {
+    this.role = role;
+    this.io = io || {};
+    this._open = false;
+    this._closed = false;
+    this._statusListeners = new Set();
+    this._messageListeners = new Set();
+  }
 
+  send(obj) {
+    if (!this._open || !this.io.outbound) return;
+    try { this.io.outbound(obj); }
+    catch (err) { console.warn('[net] relay send error:', err); }
+  }
 
+  isOpen() { return this._open; }
+
+  status() {
+    return {
+      role: this.role,
+      state: this._open ? 'connected' : 'negotiating',
+      players: this._open ? 2 : 1,
+      details: { connectionState: this._open ? 'connected' : 'connecting', iceState: 'relay' },
+    };
+  }
+
+  onStatus(fn) { this._statusListeners.add(fn); return () => this._statusListeners.delete(fn); }
+  onMessage(fn) { this._messageListeners.add(fn); return () => this._messageListeners.delete(fn); }
+  _fireStatus(arg) { this._statusListeners.forEach((fn) => fn(arg)); }
+  _fireMessage(arg) { this._messageListeners.forEach((fn) => fn(arg)); }
+
+  // server says our peer is present -> connection is up
+  open() {
+    if (this._closed || this._open) return;
+    this._open = true;
+    this._fireStatus(this.status());
+  }
+
+  // inbound payload relayed from the peer over the server
+  recv(obj) {
+    if (this._closed) return;
+    this._fireMessage(obj);
+  }
+
+  close() {
+    if (this._closed) return;
+    this._closed = true;
+    this._open = false;
+    try { if (this.io.dispose) this.io.dispose(); } catch (_) {}
+    this._statusListeners.clear();
+    this._messageListeners.clear();
+  }
+}
 
 
 
@@ -386,6 +443,16 @@ export function peerName() {
   return state.peerName;
 }
 
+// Relay mode: the server already tells us the peer's name, so adopt it
+// directly (the WebRTC path learns it via `hello`, but relay ordering can vary).
+export function adoptPeerName(name) {
+  if (name && name !== state.peerName) {
+    console.info('[net] adopted peer name: ' + name);
+    state.peerName = name;
+    stopNameSync();
+  }
+}
+
 
 
 
@@ -414,6 +481,19 @@ export function applyAnswer(answerSdp) {
     return Promise.reject(new Error('No active host session to apply answer to'));
   }
   return state.session.applyAnswer(answerSdp);
+}
+
+// ONLINE relay session: role is 'host'|'guest' from the server, `outbound`
+// ships a game payload to the relay WS and `recv` feeds a relayed payload back.
+// Returns the RelayPeer so signalling.js can call .open()/.recv()/.close().
+export function relaySession(role, io) {
+  endSession();
+  state.peerName = null;
+  state.helloSent = false;
+  state.session = new RelayPeer(role, io);
+  state.session.onStatus(broadcastStatus);
+  state.session.onMessage(broadcastMessage);
+  return state.session;
 }
 
 export function endSession() {
