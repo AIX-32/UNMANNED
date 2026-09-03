@@ -19,7 +19,7 @@ import * as idb from '../idb.js';
 const corpses = [];
 
 
-const PVP_MAPS = ['Arena', 'NFlat'];
+const PVP_MAPS = ['Arena', 'NFlat', 'Shitbox'];
 export const PVP_MODE = 'NOLINE';
 const POS_RATE = 1 / 15;
 const SNAP_DIST = 8;

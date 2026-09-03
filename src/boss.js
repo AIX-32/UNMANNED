@@ -27,10 +27,16 @@ const FIRE_RANGE = 60;
 const FIRE_COOLDOWN = 2.2;
 const AIM_ERR = 0.12;
 const BOSS_DMG = 10;
-const TURN_RATE = 1.0;
+const TURN_RATE = 1.8;
 const AGGRO_LOST = 2.0;
 const CERT_START = 14, CERT_ATTACK = 20, CERT_HIT = 70, CERT_DECAY = 2;
 const NOTICE_TIME = 1.8;
+
+
+const SPREAD_BASE = 0.04;
+const SPREAD_BLOOM = 0.015;
+const SPREAD_MAX = 0.12;
+const SPREAD_DECAY = 2.0;
 
 const MSL_COOLDOWN = 8;
 const MSL_STAGGER = 0.35;
@@ -86,16 +92,17 @@ new THREE.GLTFLoader().load('assets/models/missle.gltf', function(gltf) {
 });
 
 function newBoss(x, z, yaw) {
-  const b = {
-    x: x, z: z, yaw: yaw || 0,
-    hp: BOSS_HP, dead: false,
-    model: null, baseY: 0, top: 1, muzzleH: 2.5,
-    attacking: false, lostT: 0, fireT: 2, noticeT: 0,
-    mslT: 3, leftT: 0,
-    cert: CERT_START,
-  };
-  bosses.push(b);
-  return b;
+ const b = {
+ x: x, z: z, yaw: yaw || 0,
+ hp: BOSS_HP, dead: false,
+ model: null, baseY: 0, top: 1, muzzleH: 2.5,
+ attacking: false, lostT: 0, fireT: 2, noticeT: 0,
+ mslT: 3, leftT: 0,
+ cert: CERT_START,
+ spread: SPREAD_BASE,
+ };
+ bosses.push(b);
+ return b;
 }
 
 function spawnAll() {
@@ -128,7 +135,7 @@ function spawnAll() {
 
 
 
-    pushCollider({ type: 'box', minX: bb.min.x, maxX: bb.max.x, minZ: bb.min.z, maxZ: bb.max.z, y0: bb.min.y, y1: Math.min(bb.max.y, b.baseY + 1.9) });
+    pushCollider({ type: 'box', minX: bb.min.x, maxX: bb.max.x, minZ: bb.min.z, maxZ: bb.max.z, y0: bb.min.y, y1: Math.min(bb.max.y, b.baseY + 1.9), owner: b });
     buildUgvGrid();
     m.visible = true;
   });
@@ -215,28 +222,45 @@ export function bossCount() { return bosses.length; }
 function attachOf(b, local) {
   return new THREE.Vector3(local[0], local[1], local[2]).applyMatrix4(b.model.matrixWorld);
 }
-
 function bossFire(b) {
-  const origin = attachOf(b, BOSS_FLASH.pos);
-  const dir = new THREE.Vector3().subVectors(camera.position, origin).normalize();
-  const end = camera.position.clone().addScaledVector(dir, 2);
-  const geo = new THREE.BufferGeometry().setFromPoints([origin, end]);
-  const line = new THREE.Line(geo, tracerMat);
-  line.raycast = function() {};
-  scene.add(line);
-  setTimeout(function() { scene.remove(line); geo.dispose(); }, 120);
-  flashLight.position.copy(origin);
-  flashLight.intensity = 10;
-  ugvShot();
-  if (b.flashSpr) {
-    const fm = b.flashSpr.material;
-    fm.rotation = Math.random() * Math.PI * 2;
-    fm.opacity = 1;
-    const fs = BOSS_FLASH.size * (0.9 + Math.random() * 0.2);
-    b.flashSpr.scale.set(fs, fs, 1);
-    b.flashSpr.visible = true;
-  }
-  if (!evadedShot(origin)) damagePlayer(BOSS_DMG, origin);
+ const origin = attachOf(b, BOSS_FLASH.pos);
+ let dir = new THREE.Vector3().subVectors(camera.position, origin).normalize();
+
+ const spread = b.spread || SPREAD_BASE;
+ if (spread > 0) {
+ const angle = Math.random() * Math.PI * 2;
+ const radius = spread * Math.sqrt(Math.random());
+
+ const up = new THREE.Vector3(0, 1, 0);
+ if (Math.abs(dir.y) > 0.99) up.set(1, 0, 0);
+ const right = new THREE.Vector3().crossVectors(dir, up).normalize();
+ const localUp = new THREE.Vector3().crossVectors(right, dir).normalize();
+ const offset = new THREE.Vector3().addVectors(
+ right.clone().multiplyScalar(Math.cos(angle) * radius),
+ localUp.clone().multiplyScalar(Math.sin(angle) * radius)
+ );
+ dir.add(offset).normalize();
+ }
+ const end = origin.clone().addScaledVector(dir, 2);
+ const geo = new THREE.BufferGeometry().setFromPoints([origin, end]);
+ const line = new THREE.Line(geo, tracerMat);
+ line.raycast = function() {};
+ scene.add(line);
+ setTimeout(function() { scene.remove(line); geo.dispose(); }, 120);
+ flashLight.position.copy(origin);
+ flashLight.intensity = 10;
+ ugvShot();
+ if (b.flashSpr) {
+ const fm = b.flashSpr.material;
+ fm.rotation = Math.random() * Math.PI * 2;
+ fm.opacity = 1;
+ const fs = BOSS_FLASH.size * (0.9 + Math.random() * 0.2);
+ b.flashSpr.scale.set(fs, fs, 1);
+ b.flashSpr.visible = true;
+ }
+ if (!evadedShot(origin)) damagePlayer(BOSS_DMG, origin);
+
+  b.spread = Math.min(b.spread + SPREAD_BLOOM, SPREAD_MAX);
 }
 
 function fireMissile(b, local) {
@@ -318,6 +342,10 @@ function updateMissiles(dt) {
 }
 
 function updateOne(b, dt) {
+
+  if (b.spread !== undefined) {
+  b.spread = Math.max(SPREAD_BASE, b.spread - SPREAD_DECAY * dt);
+  }
   if (!b.model || b.dead) return;
   const px = camera.position.x, pz = camera.position.z;
   const dx = px - b.x, dz = pz - b.z;
@@ -326,7 +354,8 @@ function updateOne(b, dt) {
   const err = Math.atan2(Math.sin(toP - b.yaw), Math.cos(toP - b.yaw));
   const los = dist < FIRE_RANGE && playerLOS(b);
 
-  if (los && dist < DETECT_RANGE && Math.abs(err) < CONE_HALF && !S.dead) {
+  const gainedLOS = los && dist < DETECT_RANGE && !S.dead;
+  if (gainedLOS) {
     let rate = 16 + 22 * THREE.MathUtils.clamp(1 - dist / DETECT_RANGE, 0, 1);
     const moving = S.keys['KeyW'] || S.keys['KeyA'] || S.keys['KeyS'] || S.keys['KeyD'];
     if (moving) rate += 10;
@@ -347,9 +376,10 @@ function updateOne(b, dt) {
 
   if (attacking) {
     b.yaw += THREE.MathUtils.clamp(err, -TURN_RATE * dt, TURN_RATE * dt);
+    const aimErr = Math.atan2(Math.sin(toP - b.yaw), Math.cos(toP - b.yaw));
     b.fireT -= dt;
     if (b.fireT <= 0) {
-      if (los && Math.abs(err) < AIM_ERR && !S.dead) { bossFire(b); b.fireT = FIRE_COOLDOWN; }
+      if (los && Math.abs(aimErr) < AIM_ERR && !S.dead) { bossFire(b); b.fireT = FIRE_COOLDOWN; }
       else b.fireT = 0.1;
     }
 
@@ -362,6 +392,8 @@ function updateOne(b, dt) {
       b.leftT -= dt;
       if (b.leftT <= 0 && los && !S.dead) fireMissile(b, BOSS_MISSILES.left);
     }
+  } else if (gainedLOS) {
+    b.yaw += THREE.MathUtils.clamp(err, -TURN_RATE * dt, TURN_RATE * dt);
   } else if (b.noticeT > 0) {
     b.noticeT -= dt;
     b.yaw += THREE.MathUtils.clamp(err, -TURN_RATE * 0.8 * dt, TURN_RATE * 0.8 * dt);

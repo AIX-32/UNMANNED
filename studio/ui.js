@@ -2,7 +2,7 @@
 
 import { S, HALF, SIZE, SEGS, W, formulaHeight, freshMap } from './state.js';
 import * as idb from '../idb.js';
-import { $, status, show, hide, TEXTURES, MODELS, workLight, undo, camera,
+import { $, status, show, hide, TEXTURES, MODELS, workLight, toggleNight, setNight, undo, camera,
          pushUndo, dump, dumpNow, saveAutosave, rebuildAll, brushRing, euler, orbit,
          setPvpRebuild } from './core.js';
 import { clearGhost, makeGhost, deleteSelection, duplicateSelection, rotateSelection,
@@ -60,7 +60,7 @@ export function cycleSnap() {
 
 export function updateHint() {
   const h = $('hint');
-  let t = 'RMB drag = look around · wheel = zoom / fly-dolly · WASD fly (R/F up/down) · arrows look · Shift fast · L = work light\n';
+  let t = 'RMB drag = look around · wheel = zoom / fly-dolly · WASD fly (R/F up/down) · arrows look · Shift fast · L = work light · N = night\n';
   if (S.tool === 'select') t += 'click = pick · drag = move · ←↑↓→ slide · PgUp/Dn lift · [ ] rotate · -/+ scale · V dup · X del';
   if (S.tool === 'place') t += 'aim + click = stamp (keeps going) · rotY in panel spins the ghost · 1/2/3/4 tools · G snap';
   if (S.tool === 'terrain') t += 'hold click = sculpt · raise/lower/smooth/flatten in panel · ⛰ generate mountains = ridged ring around the map + stone above the height line';
@@ -113,6 +113,7 @@ export function handleKey(e) {
     case 'Minus': scaleSelection(0.9); break;
     case 'Equal': scaleSelection(1.1); break;
     case 'KeyL': workLight.visible = !workLight.visible; status('work light ' + (workLight.visible ? 'ON' : 'off')); break;
+    case 'KeyN': status('night preview ' + (toggleNight() ? 'ON' : 'off')); break;
     default:
 
       const yaw = euler.y;
@@ -145,6 +146,8 @@ export function initUI() {
   function syncPvpUi() {
     const on = !!S.map.pvp;
     $('pvpToggle').checked = on;
+    $('nightToggle').checked = !!S.map.night;
+    $('midnightToggle').checked = !!S.map.midnight;
     Array.prototype.forEach.call($('entSel').options, function(o) {
       if (o.value === 'pvp') o.hidden = !on;
       if (o.value === 'player') o.hidden = on;
@@ -159,6 +162,20 @@ export function initUI() {
     rebuildAll();
     dump(); saveAutosave();
     status(this.checked ? 'pvp map — place team-1 and team-2 spawns' : 'pvp mode off');
+  });
+  $('nightToggle').addEventListener('change', function() {
+    S.map.night = this.checked;
+    setNight(this.checked, S.map.midnight);
+    syncPvpUi();
+    dump(); saveAutosave();
+    status(this.checked ? 'night map — saved' : 'night off');
+  });
+  $('midnightToggle').addEventListener('change', function() {
+    S.map.midnight = this.checked;
+    setNight(S.map.night, this.checked);
+    syncPvpUi();
+    dump(); saveAutosave();
+    status(this.checked ? 'midnight — almost blind' : 'midnight off');
   });
 
   function pvpSpawnCheck() {
@@ -270,7 +287,8 @@ export function initUI() {
   function applyGround() {
     const gs = $('groundSel');
     const gt = $('groundTile');
-    const gu = $('groundUnlit').checked;
+    const gu = Math.max(0, Math.min(100, +$('groundUnlit').value || 0)) / 100;
+    $('groundUnlitV').textContent = Math.round(gu * 100) + '%';
     const tile = Math.max(0.5, parseFloat(gt.value) || 4);
     gt.value = tile;
     S.map.ground = gs.value ? { tex: gs.value, tile: tile, unlit: gu } : null;
@@ -281,11 +299,11 @@ export function initUI() {
   const groundSel = $('groundSel');
   groundSel.addEventListener('change', applyGround);
   $('groundTile').addEventListener('input', applyGround);
-  $('groundUnlit').addEventListener('change', applyGround);
+  $('groundUnlit').addEventListener('input', applyGround);
   $('groundReset').onclick = function() {
     groundSel.value = '';
     $('groundTile').value = 4;
-    $('groundUnlit').checked = false;
+    $('groundUnlit').value = 0;
     applyGround();
   };
   $('groundUpload').onclick = function() { $('groundFile').click(); };
@@ -311,7 +329,9 @@ export function initUI() {
   if (S.map.ground && S.map.ground.tex) {
     groundSel.value = S.map.ground.tex;
     $('groundTile').value = S.map.ground.tile || 4;
-    $('groundUnlit').checked = !!S.map.ground.unlit;
+    const gu0 = Math.round((+(S.map.ground.unlit ?? 0) || 0) * 100);
+    $('groundUnlit').value = gu0;
+    $('groundUnlitV').textContent = gu0 + '%';
   }
 
 

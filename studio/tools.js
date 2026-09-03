@@ -485,6 +485,15 @@ export function generateMountains() {
     const carve = 0.75 + 0.25 * fbm(wx * 0.02 + 42, wz * 0.02 + 7, 3);
     H[j * W + i] = ridge * ring * peak * carve;
   }
+
+  for (let p = 0; p < 3; p++) {
+    for (let j = 1; j < n; j++) for (let i = 1; i < n; i++) {
+      const k = j * W + i, lim = 2 * step;
+      const avg = (H[k - 1] + H[k + 1] + H[k - W] + H[k + W]) / 4;
+      if (H[k] > avg + lim) H[k] = avg + lim;
+      else if (H[k] < avg - lim) H[k] = avg - lim;
+    }
+  }
   rebuildAll();
   ensureGroundTex();
   paintBaseGrass();

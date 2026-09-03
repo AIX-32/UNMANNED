@@ -10,6 +10,7 @@ import * as idb from '../idb.js';
 
 
 
+const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
 const _anchor = new THREE.Vector3();
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3(), _up = new THREE.Vector3();
 function makeHud(w, h, tiltX, tiltZ) {
@@ -22,7 +23,7 @@ function makeHud(w, h, tiltX, tiltZ) {
     new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
   mesh.renderOrder = 950;
   scene.add(mesh);
-  return { c, ctx, tex, mesh, tiltX, tiltZ, text: '', pad: 30, fontPx: 150,
+  return { c, ctx, tex, mesh, tiltX, tiltZ, text: '', pad: 16, fontPx: 90,
            snapH: makePadSnap(), snapV: makePadSnap() };
 }
 function drawHud(h) {
@@ -33,10 +34,10 @@ function drawHud(h) {
   ctx.textBaseline = 'top';
   ctx.fillStyle = '#fff';
   ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 5;
+  ctx.lineWidth = 3;
   const tw = ctx.measureText(h.text).width;
 
-  ctx.strokeRect(padX - 26, padY - 26, tw + 52, h.fontPx + 52);
+  ctx.strokeRect(padX - 18, padY - 18, tw + 36, h.fontPx + 36);
   ctx.fillText(h.text, padX, padY);
   h.tex.needsUpdate = true;
 }
@@ -67,7 +68,7 @@ function padSnapTick(s, dt) {
   if (s.t >= s.next) {
     s.t = 0;
     s.next = 0.15 + Math.random() * 0.25;
-    s.v = 0.7 + Math.random() * 0.6;
+    s.v = 0.9 + Math.random() * 0.2;
   }
 }
 function idSquare(el, basePad) {
@@ -90,15 +91,15 @@ setInterval(function() {
   if (hudEdit) hudEditTick();
 }, 50);
 
-const ammoHud = makeHud(0.5, 0.125, -0.21, 0.31);
-const hpHud = makeHud(0.46, 0.125, -0.21, -0.31);
+const ammoHud = makeHud(0.38, 0.095, -0.21, -0.31);
+const hpHud = makeHud(0.38, 0.095, -0.21, -0.31);
 ammoHud.runShift = 0.05;
 hpHud.runShift = -0.05;
 
 
 
 
-const bossHud = makeHud(0.5, 0.14, -0.21, 0);
+const bossHud = makeHud(0.42, 0.11, -0.21, 0);
 export function drawBossHud() {
   const info = bossInfo();
   if (!info) { bossHud.mesh.visible = false; return; }
@@ -106,45 +107,45 @@ export function drawBossHud() {
   const ctx = bossHud.ctx;
   ctx.clearRect(0, 0, bossHud.c.width, bossHud.c.height);
   const pct = Math.max(0, Math.min(info.hp / info.maxHp, 1));
-  const cx = bossHud.c.width / 2, bw = 736, bh = 46, by = 38;
-  ctx.lineWidth = 5;
+  const cx = bossHud.c.width / 2, bw = 560, bh = 32, by = 30;
+  ctx.lineWidth = 3;
   ctx.strokeStyle = '#fff';
-  ctx.strokeRect(cx - bw / 2 - 3, by - 3, bw + 6, bh + 6);
+  ctx.strokeRect(cx - bw / 2 - 2, by - 2, bw + 4, bh + 4);
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.fillRect(cx - bw / 2, by, bw, bh);
   ctx.fillStyle = pct < 0.3 ? '#f44' : '#ffdd44';
   ctx.fillRect(cx - bw / 2, by, bw * pct, bh);
-  ctx.font = '900 54px Tomorrow,monospace';
+  ctx.font = '900 40px Tomorrow,monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#fff';
-  ctx.fillText(BOSS_NAME, cx, by + bh + 38);
+  ctx.fillText(BOSS_NAME, cx, by + bh + 26);
   bossHud.tex.needsUpdate = true;
 }
-export function placeBossHud() { placeHud(bossHud, 0, 0.415); }
+export function placeBossHud() { placeHud(bossHud, 0, 0.28); }
 
 
 
-const boxBarHud = makeHud(0.5, 0.12, -0.21, 0);
+const boxBarHud = makeHud(0.38, 0.09, -0.21, 0);
 boxBarHud.mesh.visible = false;
 export function updateBoxBar(frac, secs) {
   const ctx = boxBarHud.ctx;
   ctx.clearRect(0, 0, boxBarHud.c.width, boxBarHud.c.height);
-  const cx = boxBarHud.c.width / 2, bw = 640, bh = 40, by = 34;
-  ctx.lineWidth = 5;
+  const cx = boxBarHud.c.width / 2, bw = 480, bh = 28, by = 24;
+  ctx.lineWidth = 3;
   ctx.strokeStyle = '#fff';
-  ctx.strokeRect(cx - bw / 2 - 3, by - 3, bw + 6, bh + 6);
+  ctx.strokeRect(cx - bw / 2 - 2, by - 2, bw + 4, bh + 4);
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.fillRect(cx - bw / 2, by, bw, bh);
   ctx.fillStyle = '#7f7';
   ctx.fillRect(cx - bw / 2, by, bw * frac, bh);
-  ctx.font = '900 34px Tomorrow,monospace';
+  ctx.font = '900 28px Tomorrow,monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#fff';
-  ctx.fillText('HEALING ' + Math.ceil(secs) + 's', cx, by + bh + 34);
+  ctx.fillText('HEALING ' + Math.ceil(secs) + 's', cx, by + bh + 22);
   boxBarHud.tex.needsUpdate = true;
-  placeHud(boxBarHud, 0, 0.1);
+  placeHud(boxBarHud, 0, 0.08);
 }
 export function hideBoxBar() { boxBarHud.mesh.visible = false; }
 
@@ -152,12 +153,12 @@ export function hideBoxBar() { boxBarHud.mesh.visible = false; }
 
 const HUD_NAME = { ammo: 'AMMO', hp: 'HP', cc: 'CC', radar: 'RADAR', radarBat: 'BATTERY', grens: 'GRENADES' };
 const hudLayout = {
-  ammo:    [0.384, -0.21],
-  hp:      [-0.346, -0.256],
-  cc:      [-0.286, 0.278],
-  radar:   [-0.28, 0.18],
-  radarBat:[-0.104, 0.325],
-  grens:   [0.384, 0.278],
+  ammo:    [-0.311, -0.154],
+  hp:      [-0.3, -0.22],
+  cc:      [0.475, 0.045],
+  radar:   [0.445, -0.126],
+  radarBat:[0.508, -0.053],
+  grens:   [0.511, 0.001],
 };
 
 export function updateAmmoUI(text) {
@@ -176,7 +177,7 @@ export function updateHpUI() {
 
 
 
-const ccHud = makeHud(0.5, 0.125, -0.21, 0.31);
+const ccHud = makeHud(0.38, 0.095, -0.21, 0.31);
 ccHud.runShift = -0.05;
 ccHud.mesh.visible = false;
 const CC_KEY = 'gault_cc';
@@ -205,10 +206,10 @@ export function updateCcUI() {
   placeHud(ccHud, hudLayout.cc[0], hudLayout.cc[1]);
 }
 
-const radarHud = makeHud(0.5, 0.125, -0.21, 0.31);
+const radarHud = makeHud(0.38, 0.095, -0.21, 0.31);
 radarHud.runShift = -0.04;
 radarHud.mesh.visible = false;
-const radarBatHud = makeHud(0.5, 0.125, -0.21, 0.31);
+const radarBatHud = makeHud(0.38, 0.095, -0.21, 0.31);
 radarBatHud.runShift = -0.04;
 radarBatHud.mesh.visible = false;
 export function updateRadarUI() {
@@ -223,7 +224,7 @@ export function updateRadarUI() {
   placeHud(radarBatHud, hudLayout.radarBat[0], hudLayout.radarBat[1]);
 }
 
-const grenHud = makeHud(0.5, 0.125, -0.21, 0.31);
+const grenHud = makeHud(0.38, 0.095, -0.21, 0.31);
 grenHud.runShift = 0.04;
 grenHud.mesh.visible = false;
 export function updateGrenadeUI() {
@@ -232,7 +233,7 @@ export function updateGrenadeUI() {
   placeHud(grenHud, hudLayout.grens[0], hudLayout.grens[1]);
 }
 
-const pvpHud = makeHud(0.5, 0.09, -0.21, 0);
+const pvpHud = makeHud(0.42, 0.075, -0.21, 0);
 pvpHud.mesh.visible = false;
 export function updatePvpHud() {
   const vis = S.pvp && !(S.hub || S.story || S.won || S.dead || S.paused);
@@ -240,14 +241,14 @@ export function updatePvpHud() {
   if (!vis) return;
   const t = 'YOU ' + (S.kills || 0) + ' — ' + (S.pvpThem || 0) + '  ' + (S.pvpPeerName || '???') + '  ·  FIRST TO ' + (S.killLimit || 10);
   if (pvpHud.text !== t) { pvpHud.text = t; drawHud(pvpHud); }
-  placeHud(pvpHud, 0, 0.22);
+  placeHud(pvpHud, 0, 0.18);
 }
 
 
 
 
 export function updateHudVisibility() {
-  const empty = S.hub || S.story || S.won || S.dead || S.paused || S.pvpLobby || (!S.isLocked && S.everLocked);
+  const empty = S.hub || S.story || S.won || S.dead || S.paused || S.pvpLobby || (IS_HUDEDIT ? false : (!S.isLocked && S.everLocked));
   const play = !empty;
   ammoHud.mesh.visible = play;
   hpHud.mesh.visible = play;
@@ -392,6 +393,12 @@ function drawDeath() {
     deathBtns.push({ x: bx, y: by, w: bw, h: bh, afford: afford });
     deathBtns.push({ x: lx, y: ry, w: half, h: rh, killcam: hasKiller });
     deathBtns.push({ x: rx, y: ry, w: half, h: rh, restart: true });
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(bx, ry + rh + 12, bw, 40);
+    ctx.fillStyle = '#fff';
+    fillLabel(ctx, 'BACK TO HUB', W / 2, ry + rh + 32, bw, 40, 36);
+    deathBtns.push({ x: bx, y: ry + rh + 12, w: bw, h: 40, hub: true });
   }
   deathTex.needsUpdate = true;
 }
@@ -423,6 +430,7 @@ document.addEventListener('pointerdown', function(e) {
   const b = deathHitTest(e);
   if (!b) return;
   if (b.restart) { location.reload(); return; }
+  if (b.hub) { location.href = 'index.html'; return; }
   if (b.killcam) { S.killCam(); return; }
   if (b.pvpquit) { if (S.pvpQuit) S.pvpQuit(); return; }
   if (b.afford) {
@@ -626,6 +634,10 @@ export function openPause() {
   S.paused = true;
   menuParked = false; menuView = 0; drawMenu();
 }
+export function openSettings() {
+  menuParked = false; menuView = 1; drawMenu();
+  boardShow(menuMesh);
+}
 function fireMenuButton(b) {
   const AIM_MIN = 0, AIM_MAX = 10, AIM_STEP = 0.1, AIM_DEFAULT = 1.12;
   if (b.kind === 'dec' || b.kind === 'inc') {
@@ -655,6 +667,7 @@ function fireMenuButton(b) {
   } else if (b.label === 'SETTINGS') {
     menuView = 1; drawMenu();
   } else if (b.label === 'BACK') {
+    if (S.hub) { boardHide(menuMesh); return; }
     menuView = 0; drawMenu();
   } else if (b.label === 'MAIN MENU') {
     location.href = 'index.html';
@@ -691,7 +704,7 @@ export function setPauseMenuVisible(v) { v ? boardShow(menuMesh) : boardHide(men
 
 let lockPending = false;
 export function requestGameLock() {
-  if (S.isLocked || document.pointerLockElement || lockPending) return;
+  if (IS_HUDEDIT || S.isLocked || document.pointerLockElement || lockPending) return;
   lockPending = true;
   renderer.domElement.requestPointerLock();
 }
@@ -729,7 +742,7 @@ document.addEventListener('pointerlockchange', function() {
   if (S.dead || S.won || S.hub || S.story) { boardHide(menuMesh); S.paused = false; return; }
   if (firstLock) { boardHide(menuMesh); S.paused = false; return; }
   if (wasLocked && !S.isLocked) {
-    if (document.hidden) return;
+    if (document.hidden || IS_HUDEDIT) return;
     openPause();
     return;
   }
@@ -748,7 +761,7 @@ drawMenu();
 
 
 
-const hudEdit = new URLSearchParams(location.search).get('hudedit') !== null;
+const hudEdit = IS_HUDEDIT;
 const HUD_DIST = 0.5;
 const hudPanels = { ammo: ammoHud, hp: hpHud, cc: ccHud, radar: radarHud, radarBat: radarBatHud, grens: grenHud };
 let hudSel = 'ammo';

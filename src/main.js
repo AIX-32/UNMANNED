@@ -349,7 +349,7 @@ function updateCameraRig(dt) {
   const wh = wallRay.intersectObjects(scene.children, true);
   let nearest = 1.3;
   for (let i = 0; i < wh.length; i++) {
-    if (inGun(wh[i].object)) continue;
+    if (inGun(wh[i].object) || wh[i].object.userData.ground) continue;
     nearest = wh[i].distance; break;
   }
   S.wallProx += (THREE.MathUtils.clamp((1.3 - nearest) / 0.7, 0, 1) - S.wallProx) * Math.min(1, dt * 10);

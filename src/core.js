@@ -113,11 +113,12 @@ export function renderFrame(now) {
 
 
 export const gunScene = new THREE.Scene();
-gunScene.add(new THREE.AmbientLight(0x403030, 0.5));
-const gunKey = new THREE.DirectionalLight(0xff6a2a, 1.1);
+export const gunAmbient = new THREE.AmbientLight(0x403030, 0.5);
+gunScene.add(gunAmbient);
+export const gunKey = new THREE.DirectionalLight(0xff6a2a, 1.1);
 gunKey.position.set(20, 40, 10);
 gunScene.add(gunKey);
-const gunHemi = new THREE.HemisphereLight(0x2a3545, 0x1a1410, 0.5);
+export const gunHemi = new THREE.HemisphereLight(0x2a3545, 0x1a1410, 0.5);
 gunScene.add(gunHemi);
 
 window.__gaultCamera = camera;

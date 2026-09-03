@@ -1,6 +1,6 @@
 
 
-import { scene, camera } from './core.js';
+import { scene, camera, gunAmbient, gunKey, gunHemi } from './core.js';
 import { S } from './state.js';
 import { syncHub } from './menu.js';
 import { buildUgvGrid, setUgvMapReady } from './ugv.js';
@@ -17,6 +17,32 @@ Object.assign(moon.shadow.camera, { left: -50, right: 50, top: 50, bottom: -50 }
 scene.add(moon);
 const hemi = new THREE.HemisphereLight(0x2a3545, 0x1a1410, 0.5);
 scene.add(hemi);
+
+
+export function applyNight(on, mid) {
+  const m = !!mid, n = m || !!on;
+  nightOn = n;
+  ambient.intensity = m ? 0.04 : n ? 0.15 : 0.5;
+  ambient.color.setHex(m ? 0x101828 : n ? 0x223044 : 0x403030);
+  moon.intensity = m ? 0.06 : n ? 0.25 : 1.1;
+  moon.color.setHex(n ? 0x6a8ac0 : 0xff6a2a);
+  hemi.intensity = m ? 0.04 : n ? 0.15 : 0.5;
+  scene.background.setHex(m ? 0x04060c : n ? 0x0a0e18 : 0x1a1512);
+  scene.fog.color.setHex(m ? 0x04060c : n ? 0x0a0e18 : 0x1a1512);
+
+  gunAmbient.intensity = m ? 0.04 : n ? 0.15 : 0.5;
+  gunAmbient.color.setHex(m ? 0x101828 : n ? 0x223044 : 0x403030);
+  gunKey.intensity = m ? 0.06 : n ? 0.25 : 1.1;
+  gunKey.color.setHex(n ? 0x6a8ac0 : 0xff6a2a);
+  gunHemi.intensity = m ? 0.04 : n ? 0.15 : 0.5;
+
+  if (sunMesh) sunMesh.visible = !n;
+
+  if (paintMesh) {
+    paintMesh.material.dispose();
+    paintMesh.material = paintMaterial();
+  }
+}
 
 
 
@@ -240,6 +266,7 @@ grassTex.repeat.set(150, 150);
 
 
 let paintMesh = null;
+let paintTex = null;
 function groundMaterial() {
   const g = MAPJSON && MAPJSON.ground;
   if (g && g.tex) {
@@ -257,8 +284,12 @@ function groundMaterial() {
       img.src = g.tex;
       texCache[g.tex] = img;
     }
-    const mat = g.unlit ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
-    return new mat({ map: t, vertexColors: true });
+
+    const uk = +(g.unlit ?? 0) || 0;
+    if (uk >= 1) return new THREE.MeshBasicMaterial({ map: t, vertexColors: true });
+    const lm = new THREE.MeshLambertMaterial({ map: t, vertexColors: true });
+    if (uk > 0) { lm.emissive = new THREE.Color(0xffffff); lm.emissiveMap = t; lm.emissiveIntensity = uk; lm.color.setScalar(1 - uk); }
+    return lm;
   }
   return new THREE.MeshLambertMaterial({ map: grassTex, vertexColors: true });
 }
@@ -292,13 +323,19 @@ function buildGround() {
     const ptex = new THREE.TextureLoader().load(MAPJSON.groundTex);
     ptex.wrapS = ptex.wrapT = THREE.ClampToEdgeWrapping;
     ptex.repeat.set(1, 1);
-    const pmat = new THREE.MeshBasicMaterial({ map: ptex, transparent: true, depthWrite: false });
-    paintMesh = new THREE.Mesh(pgeo, pmat);
+    paintTex = ptex;
+    paintMesh = new THREE.Mesh(pgeo, paintMaterial());
     paintMesh.rotation.x = -Math.PI / 2;
     paintMesh.position.y = 0.05;
     paintMesh.userData.ground = true;
     scene.add(paintMesh);
   }
+}
+
+
+function paintMaterial() {
+  if (nightOn) return new THREE.MeshLambertMaterial({ map: paintTex, transparent: true, depthWrite: false });
+  return new THREE.MeshBasicMaterial({ map: paintTex, transparent: true, depthWrite: false });
 }
 
 
@@ -494,9 +531,11 @@ loadProto('tankhead.gltf', function(s) { turretModel = s; attachTurret(); });
 
 
 const SUN_DIST = 130, SUN_SCALE = 12;
+let sunMesh = null;
+let nightOn = false;
 loader.load('assets/models/sun.gltf', function(gltf) {
-  const sun = gltf.scene;
-  sun.traverse(function(o) {
+  sunMesh = gltf.scene;
+  sunMesh.traverse(function(o) {
     if (o.isMesh) {
       o.castShadow = false;
       o.receiveShadow = false;
@@ -507,13 +546,14 @@ loader.load('assets/models/sun.gltf', function(gltf) {
       m.map.encoding = THREE.LinearEncoding;
     }
   });
-  sun.position.copy(new THREE.Vector3(20, 40, 10).normalize()).multiplyScalar(SUN_DIST);
-  sun.scale.setScalar(SUN_SCALE);
-  scene.add(sun);
+  sunMesh.position.copy(new THREE.Vector3(20, 40, 10).normalize()).multiplyScalar(SUN_DIST);
+  sunMesh.scale.setScalar(SUN_SCALE);
+  sunMesh.visible = !nightOn;
+  scene.add(sunMesh);
 
   const t0 = performance.now();
   (function spin() {
-    sun.rotation.z = (performance.now() - t0) * 0.00012;
+    sunMesh.rotation.z = (performance.now() - t0) * 0.00012;
     requestAnimationFrame(spin);
   })();
 });
@@ -632,6 +672,9 @@ function buildGrass() {
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
+
+  const gnorm = geo.attributes.normal;
+  for (let i = 0; i < gnorm.count; i++) gnorm.setXYZ(i, 0, 1, 0);
   const tex = new THREE.Texture();
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   let img = texCache[g.tex];
@@ -644,7 +687,17 @@ function buildGrass() {
     img.src = g.tex;
     texCache[g.tex] = img;
   }
-  const mat = new (g.unlit ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial)({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 });
+
+  const uk = +(g.unlit ?? 0) || 0;
+  const mat = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: uk });
+  if (uk > 0) mat.color.setScalar(Math.max(0, 1 - uk));
+
+  mat.onBeforeCompile = function(sh) {
+    sh.fragmentShader = sh.fragmentShader
+      .split('( gl_FrontFacing ) ? vLightFront : vLightBack').join('vLightFront')
+      .split('( gl_FrontFacing ) ? vIndirectFront : vIndirectBack').join('vIndirectFront');
+  };
+  mat.customProgramCacheKey = function() { return 'grass-frontlit'; };
   grassMesh = new THREE.Mesh(geo, mat);
   grassMesh.userData.ground = true;
   scene.add(grassMesh);
@@ -729,6 +782,7 @@ export function applyMap(j) {
   S.mapName = j && j.name ? j.name : '';
   S.hub = S.mapName === 'hub';
   S.pvp = !!(j && j.pvp);
+  applyNight(j && j.night, j && j.midnight);
   S.storyData = (j && j.story && (j.story.sections || j.story.cam || j.story.triggers)) ? j.story : null;
   S.mapCC = 0;
   S.mapBoxes = 0;

@@ -8,8 +8,9 @@
 
 
 import { S } from './state.js';
-import { scene, groundHit, sampleHeight, texImg, brushRing,
+import { scene, groundHit, sampleHeight, texImg, brushRing, TEXTURES,
          pushUndo, dump, saveAutosave, status, setGrassRebuild } from './core.js';
+import { loadImage, imageStats, matchImage } from '../colorcorrect.js';
 
 
 export const G = {
@@ -64,7 +65,7 @@ function shint(txt) { const d = document.createElement('div'); d.className = 'sh
 const prev = document.createElement('canvas');
 prev.width = prev.height = 56;
 prev.style.cssText = 'border:1px solid #444;border-radius:3px;background:#000';
-let pairsIn = null, widthIn = null, heightIn = null, unlitIn = null, radiusIn = null;
+let pairsIn = null, widthIn = null, heightIn = null, unlitIn = null, unlitPct = null, radiusIn = null, ccIn = null;
 function syncControls() {
   const g = ensureGrass();
   G.pairs = g.pairs || 3; G.size = g.size || 0.7; G.height = g.height || 1.3;
@@ -72,7 +73,12 @@ function syncControls() {
   if (pairsIn) pairsIn.value = G.pairs;
   if (widthIn) widthIn.value = G.size;
   if (heightIn) heightIn.value = G.height;
-  if (unlitIn) unlitIn.checked = !!g.unlit;
+  if (unlitIn) {
+    const v = Math.round((+(g.unlit ?? 0) || 0) * 100);
+    unlitIn.value = v;
+    if (unlitPct) unlitPct.textContent = v + '%';
+  }
+  if (ccIn) ccIn.checked = !!g.cc;
   if (radiusIn) radiusIn.value = G.radius;
 }
 {
@@ -91,9 +97,11 @@ function syncControls() {
       cv.width = Math.max(1, Math.round(img.width * sc));
       cv.height = Math.max(1, Math.round(img.height * sc));
       cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-      ensureGrass().tex = cv.toDataURL('image/png');
-      drawPrev();
-      rebuildGrassMesh(); dump(); saveAutosave();
+      const g = ensureGrass();
+      g.tex = cv.toDataURL('image/png');
+      g.texRaw = null;
+      if (g.cc) colorMatchSprite();
+      else { drawPrev(); rebuildGrassMesh(); dump(); saveAutosave(); }
       status('grass sprite set — hold LMB on the ground to paint it');
     };
     img.onerror = function() { status("couldn't decode \"" + f.name + '" as an image'); };
@@ -144,14 +152,36 @@ function drawPrev() {
 }
 {
   const r = row();
+  r.appendChild(label('true light'));
   unlitIn = document.createElement('input');
-  unlitIn.type = 'checkbox';
-  unlitIn.addEventListener('change', function() {
-    ensureGrass().unlit = unlitIn.checked;
+  unlitIn.type = 'range'; unlitIn.min = '0'; unlitIn.max = '100'; unlitIn.step = '1';
+  unlitIn.style.flex = '1';
+  unlitPct = label('');
+  unlitIn.addEventListener('input', function() {
+    const v = Math.max(0, Math.min(100, +unlitIn.value || 0));
+    ensureGrass().unlit = v / 100;
+    unlitPct.textContent = v + '%';
     rebuildGrassMesh(); dump(); saveAutosave();
   });
   r.appendChild(unlitIn);
-  r.appendChild(label('true colors (unlit) — skips the warm night lights that tint the blades orange'));
+  r.appendChild(unlitPct);
+  r.appendChild(label('— how much true color shines through the night lights'));
+}
+{
+  const r = row();
+  ccIn = document.createElement('input');
+  ccIn.type = 'checkbox';
+  ccIn.addEventListener('change', function() {
+    const g = ensureGrass();
+    g.cc = ccIn.checked;
+    if (g.cc) { if (g.tex) colorMatchSprite(); }
+    else if (g.texRaw) {
+      g.tex = g.texRaw; g.texRaw = null;
+      drawPrev(); rebuildGrassMesh(); dump(); saveAutosave();
+    } else dump();
+  });
+  r.appendChild(ccIn);
+  r.appendChild(label('color correction — repaint sprite into the ground tile palette'));
 }
 {
   const r = row();
@@ -175,6 +205,18 @@ function addQuad(positions, uvs, indices, x, y0, z, w, h, a) {
   uvs.push(1, 0, 1, 1, 0, 0, 0, 1);
   indices.push(positions.length / 3 - 4, positions.length / 3 - 3, positions.length / 3 - 2,
                positions.length / 3 - 3, positions.length / 3 - 1, positions.length / 3 - 2);
+}
+
+function colorMatchSprite() {
+  const g = ensureGrass();
+  if (!g.tex) return;
+  if (!g.texRaw) g.texRaw = g.tex;
+  const ground = (S.map && S.map.ground && S.map.ground.tex) || TEXTURES[0].src;
+  Promise.all([loadImage(g.texRaw), loadImage(ground)]).then(function(ims) {
+    g.tex = matchImage(ims[0], imageStats(ims[1])).toDataURL('image/png');
+    drawPrev(); rebuildGrassMesh(); dump(); saveAutosave();
+    status('sprite color-matched to ground');
+  }).catch(function() { status("couldn't read ground tile for color correction"); });
 }
 function buildGrassMesh() {
   const g = ensureGrass();
@@ -215,12 +257,25 @@ function buildGrassMesh() {
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
+
+  const gnorm = geo.attributes.normal;
+  for (let i = 0; i < gnorm.count; i++) gnorm.setXYZ(i, 0, 1, 0);
   const tex = new THREE.Texture();
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   const img = texImg(g.tex);
   if (img.complete && img.width) { tex.image = img; tex.needsUpdate = true; }
   else img.onload = function() { tex.image = img; tex.needsUpdate = true; };
-  const mat = new (g.unlit ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial)({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 });
+
+  const uk = +(g.unlit ?? 0) || 0;
+  const mat = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: uk });
+  if (uk > 0) mat.color.setScalar(Math.max(0, 1 - uk));
+
+  mat.onBeforeCompile = function(sh) {
+    sh.fragmentShader = sh.fragmentShader
+      .split('( gl_FrontFacing ) ? vLightFront : vLightBack').join('vLightFront')
+      .split('( gl_FrontFacing ) ? vIndirectFront : vIndirectBack').join('vIndirectFront');
+  };
+  mat.customProgramCacheKey = function() { return 'grass-frontlit'; };
   grassMesh = new THREE.Mesh(geo, mat);
   scene.add(grassMesh);
 }

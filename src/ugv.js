@@ -627,7 +627,7 @@ function segHitsCyl(ox, oy, oz, px, py, pz, c) {
 }
 export function playerLOS(u) {
   const ox = u.x, oz = u.z;
-  const oy = groundHeight(ox, oz) + u.top * 0.7;
+  const oy = groundHeight(ox, oz) + (u.muzzleH != null ? u.muzzleH : u.top * 0.7);
   const px = camera.position.x, py = camera.position.y, pz = camera.position.z;
 
   const d = Math.hypot(px - ox, pz - oz), steps = Math.ceil(d / 0.8);
@@ -639,6 +639,7 @@ export function playerLOS(u) {
   const q = queryRay(ox, oz, px, pz);
   for (let i = 0; i < q.length; i++) {
     const c = q[i];
+    if (c.owner === u) continue;
     if (c.type === 'box') { if (segHitsBox(ox, oy, oz, px, py, pz, c)) return false; }
     else if (c.type === 'cyl') { if (segHitsCyl(ox, oy, oz, px, py, pz, c)) return false; }
     else if (segHitsSegWall(ox, oy, oz, px, py, pz, c)) return false;

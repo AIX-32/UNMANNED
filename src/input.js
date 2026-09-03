@@ -7,6 +7,7 @@ import { toggleRadar } from './radar.js';
 import { flashDbg, menuActive, requestGameLock, openPause, resumeGame } from './ui.js';
 import { bootActive } from './menu.js';
 
+const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
 document.addEventListener('mousedown', function(e) {
   if (S.dead || S.won || S.hub || S.story || S.pvpLobby) return;
   if (S.settings.laptop) return;
@@ -103,10 +104,11 @@ document.addEventListener('keydown', function(e) {
   if (!e.repeat && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4' || e.code === 'Digit5')) switchWeapon(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code));
 
 
-  if (e.code === 'Escape' && !e.repeat && !S.isLocked) openPause();
+  if (e.code === 'Escape' && !e.repeat && !S.isLocked && !IS_HUDEDIT) openPause();
 
 
   if (e.code === 'KeyP' && !e.repeat) {
+    if (IS_HUDEDIT) return;
     if (menuActive()) resumeGame();
     else openPause();
   }

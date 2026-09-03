@@ -28,14 +28,32 @@ export const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 
 camera.position.set(0, 18, 42);
 camera.lookAt(0, 0, 0);
 
-scene.add(new THREE.AmbientLight(0x403030, 0.9));
+const ambLight = new THREE.AmbientLight(0x403030, 0.9);
+scene.add(ambLight);
 const moon = new THREE.DirectionalLight(0xff6a2a, 1.1);
 moon.position.set(20, 40, 10);
 moon.castShadow = true;
 moon.shadow.mapSize.set(2048, 2048);
 Object.assign(moon.shadow.camera, { left: -110, right: 110, top: 110, bottom: -110 });
 scene.add(moon);
-scene.add(new THREE.HemisphereLight(0x2a3545, 0x1a1410, 0.6));
+const hemiLight = new THREE.HemisphereLight(0x2a3545, 0x1a1410, 0.6);
+scene.add(hemiLight);
+
+
+let nightOn = false;
+export function setNight(on, mid) {
+  const m = !!mid;
+  nightOn = m || !!on;
+  ambLight.intensity = m ? 0.04 : nightOn ? 0.15 : 0.9;
+  ambLight.color.setHex(m ? 0x101828 : nightOn ? 0x223044 : 0x403030);
+  moon.intensity = m ? 0.06 : nightOn ? 0.25 : 1.1;
+  moon.color.setHex(nightOn ? 0x6a8ac0 : 0xff6a2a);
+  hemiLight.intensity = m ? 0.04 : nightOn ? 0.15 : 0.6;
+  scene.background.setHex(m ? 0x04060c : nightOn ? 0x0a0e18 : 0x1a1512);
+  scene.fog.color.setHex(m ? 0x04060c : nightOn ? 0x0a0e18 : 0x1a1512);
+  return nightOn;
+}
+export function toggleNight() { return setNight(!nightOn); }
 
 
 export const workLight = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -152,7 +170,7 @@ export function buildGround() {
 
   ensureGroundTex();
   const pgeo = geo.clone();
-  const pmat = new THREE.MeshBasicMaterial({ map: groundTex, transparent: true, depthWrite: false });
+  const pmat = new THREE.MeshLambertMaterial({ map: groundTex, transparent: true, depthWrite: false });
   paintMesh = new THREE.Mesh(pgeo, pmat);
   paintMesh.rotation.x = -Math.PI / 2;
   paintMesh.position.y = 0.05;
@@ -166,8 +184,12 @@ export function groundMaterial() {
   const g = S.map && S.map.ground;
   if (g && g.tex) {
     const tile = Math.max(0.5, parseFloat(g.tile) || 4);
-    const mat = g.unlit ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
-    return new mat({ map: makeTex(g.tex, SIZE / tile, SIZE / tile), vertexColors: true });
+
+    const uk = +(g.unlit ?? 0) || 0;
+    if (uk >= 1) return new THREE.MeshBasicMaterial({ map: makeTex(g.tex, SIZE / tile, SIZE / tile), vertexColors: true });
+    const lm = new THREE.MeshLambertMaterial({ map: makeTex(g.tex, SIZE / tile, SIZE / tile), vertexColors: true });
+    if (uk > 0) { lm.emissive = new THREE.Color(0xffffff); lm.emissiveMap = lm.map; lm.emissiveIntensity = uk; lm.color.setScalar(1 - uk); }
+    return lm;
   }
   return new THREE.MeshLambertMaterial({ map: makeTex(TEXTURES[0].src, 150, 150), vertexColors: true });
 }
@@ -286,6 +308,9 @@ export function rebuildAll() {
   if (!S.map.story) S.map.story = { cam: [], sections: [], triggers: [] };
   if (!S.map.grass) S.map.grass = { tex: null, pairs: 3, size: 0.7, height: 1.3, pts: [], unlit: false, radius: 0.6 };
   if (S.map.pvp == null) S.map.pvp = false;
+  if (S.map.night == null) S.map.night = false;
+  if (S.map.midnight == null) S.map.midnight = false;
+  setNight(S.map.night, S.map.midnight);
   resetSplatRuntime();
   clearGroups();
   buildGround();

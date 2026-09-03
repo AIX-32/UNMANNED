@@ -5,13 +5,15 @@
 
 import { scene, camera, gunScene } from './core.js';
 import { S } from './state.js';
-import { setPauseMenuVisible, requestGameLock, ccTotal, addCc, bankMapCc, boardShow, boardHide, boardReopen } from './ui.js';
+import { setPauseMenuVisible, requestGameLock, ccTotal, addCc, bankMapCc, boardShow, boardHide, boardReopen, openSettings, menuActive } from './ui.js';
 import { WEAPONS, getOwned, buyGun, isOwned, getLoadout, setLoadoutSlot, boxCount, buyBox } from './weapons.js';
 import { buyBattery } from './radar.js';
 import { startHostUi, startJoinUi, netOpen, getStatus as sessionStatus, onStatus as netOnStatus, onNetVisibility, myName, randomName, pasteName, endSession } from './net.js';
 import { pvpMaps, hostPickMap, hostResetPick, guestReady, hostStart, isHost, guestHasReady, guestHasSent, pickedMap, setLobbyRedraw, PVP_MODE, pvpLobbyActive, setRemoteTags } from './pvp.js';
 import { onlineList, onlineJoin } from './signalling.js';
 import * as idb from '../idb.js';
+
+const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
 
 
 
@@ -20,7 +22,15 @@ const loader = document.getElementById('loader');
 const loaderText = document.getElementById('loaderText');
 let loaderDone = false;
 loader.addEventListener('click', function() {
-  if (S.worldReady && S.pendingLoads === 0) requestGameLock();
+  if (!S.worldReady || S.pendingLoads !== 0) return;
+  if (IS_HUDEDIT) {
+    loaderDone = true;
+    loader.style.display = 'none';
+    setPauseMenuVisible(false);
+    S.paused = false;
+    return;
+  }
+  requestGameLock();
 });
 document.addEventListener('pointerlockchange', function() {
   if (loaderDone || !S.isLocked) return;
@@ -42,6 +52,8 @@ const CAMPAIGN = [
   { map: 'Takkera', desc: '' },
   { map: 'Jimp', desc: '' },
   { map: 'SilenceVale', desc: '' },
+  { map: 'Drift', desc: '' },
+  { map: 'Haywire', desc: '' },
 ];
 const LVLPLAY = [
   { map: 'Yazd', desc: '' },
@@ -116,6 +128,7 @@ storyMesh.visible = false;
 scene.add(storyMesh);
 
 let view = 'hub';
+let campScroll = 0;
 let drawnView = null;
 const menuBtns = [];
 const winBtns = [];
@@ -269,11 +282,12 @@ function drawMenu() {
 
     hubTitle();
     if (!adMesh.visible) boardShow(adMesh);
-    panelBtn(menuBtns, 60, 170, 380, 58, 'CAMPAIGN', function() { view = 'campaign'; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 234, 380, 58, 'MULTIPLAYER', function() { view = 'multiplayer'; mp.mode = 'choose'; mp.err = ''; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 298, 380, 58, 'LVL PLAY', function() { view = 'lvlplay'; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 362, 380, 58, 'CUSTOM', function() { view = 'custom'; drawMenu(); }, false, 30);
-    panelBtn(menuBtns, 60, 426, 380, 58, 'LOADOUT', function() { view = 'loadout'; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 150, 380, 50, 'CAMPAIGN', function() { view = 'campaign'; campScroll = 0; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 206, 380, 50, 'MULTIPLAYER', function() { view = 'multiplayer'; mp.mode = 'choose'; mp.err = ''; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 262, 380, 50, 'LVL PLAY', function() { view = 'lvlplay'; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 318, 380, 50, 'CUSTOM', function() { view = 'custom'; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 374, 380, 50, 'LOADOUT', function() { view = 'loadout'; drawMenu(); }, false, 30);
+    panelBtn(menuBtns, 60, 430, 380, 50, 'SETTINGS', function() { openSettings(); }, false, 30);
     ctx.fillStyle = 'rgba(255,255,255,1)';
     ctx.font = '700 20px Tomorrow,monospace';
     ctx.textAlign = 'right';
@@ -296,13 +310,24 @@ function drawMenu() {
       panelTitle(view.toUpperCase());
     }
     if (view === 'campaign') {
-      let y = 150;
+
+      const maxScroll = Math.max(0, 150 + (CAMPAIGN.length - 1) * 56 + 32 - 432);
+      campScroll = Math.max(0, Math.min(maxScroll, campScroll));
+      let y = 150 - campScroll;
       CAMPAIGN.forEach(function(lvl, i) {
         const cleared = campBeaten(lvl.map), ok = unlocked(i);
         panelRow(menuBtns, y, (i + 1) + '. ' + lvl.map + (lvl.desc ? ' — ' + lvl.desc : ''),
           [{ x: 560, w: 200, label: cleared ? 'CLEARED' : (ok ? 'PLAY' : 'LOCKED'), dim: !ok, fn: ok ? function() { playNamed(lvl.map); } : null }]);
         y += 56;
       });
+      if (maxScroll > 0) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 20px Tomorrow,monospace';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('SCROLL ↓', CW - 36, 430);
+        ctx.textAlign = 'left';
+      }
       panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { view = 'hub'; drawMenu(); });
     } else if (view === 'lvlplay') {
       let y = 150;
@@ -491,48 +516,56 @@ function mpBackHub() {
 }
 
 function drawMpIdle() {
-  if (mp.joining) {
-    const sig = window.__gaultSig || {};
-    const rl = sig.role && sig.role() || '';
-    const last = sig.last && sig.last() || '';
-    mpLine(rl ? 'IN LOBBY  (' + (rl === 'host' ? 'HOST' : 'GUEST') + ')' : 'CONNECTING TO  ' + mp.connecting + ' …', 150);
-    mpLine('role: ' + (rl || 'none yet') + '   ' + (last || ''), 190, 'rgba(255,255,255,0.7)');
-    panelBtn(menuBtns, 60, 240, 380, 56, 'CANCEL', function() {
-      mp.joining = false; endSession(); mp.err = ''; drawMenu();
-    }, false, 26);
-    mpBackHub();
-    return;
-  }
-  if (mp.err) mpLine(mp.err, 500, '#f88');
+ if (mp.joining) {
+ const sig = window.__gaultSig || {};
+ const rl = sig.role && sig.role() || '';
+ const last = sig.last && sig.last() || '';
+ mpLine(rl ? 'IN LOBBY (' + (rl === 'host' ? 'HOST' : 'GUEST') + ')' : 'CONNECTING TO ' + mp.connecting + ' …', 150);
+ mpLine('role: ' + (rl || 'none yet') + ' ' + (last || ''), 190, 'rgba(255,255,255,0.7)');
+ panelBtn(menuBtns, 60, 240, 380, 56, 'CANCEL', function() {
+ mp.joining = false; endSession(); mp.err = ''; drawMenu();
+ }, false, 26);
+ mpBackHub();
+ return;
+ }
+ if (mp.err) mpLine(mp.err, 500, '#f88');
 
-  if (mp.mode === 'choose') {
-    panelBtn(menuBtns, 60, 150, 380, 58, 'ONLINE', function() {
-      mp.mode = 'online'; mp.servers = []; mp.err = '';
-      loadOnlineList();
-      drawMenu();
-    }, false, 24);
-    panelBtn(menuBtns, 60, 224, 380, 58, 'LAN', function() { mp.mode = 'lan'; mp.err = ''; drawMenu(); }, false, 24);
-    panelBtn(menuBtns, 60, 300, 300, 58, 'CUSTOMIZE', function() { view = 'customize'; drawMenu(); }, false, 24);
-    mpBackHub();
-  } else if (mp.mode === 'online') {
-    let y = 150;
-    mp.servers.forEach(function(e) {
-      const lock = e.password ? ' [lock]' : '';
-      const locked = !!e.password;
-      panelRow(menuBtns, y, e.name + '  ·  ' + (e.map || '?') + '  ·  ' + (e.mode || '') + lock, [
-        { x: 700, w: 180, label: locked ? 'LOCKED' : 'JOIN', dim: locked,
-          fn: locked ? null : function() { pickOnlineServer(e); } },
-      ]);
-      y += 52;
-    });
-    if (!mp.servers.length) mpLine('NO SERVERS', y + 6, 'rgba(255,255,255,0.6)');
-    panelBtn(menuBtns, 60, 440, 380, 44, 'REFRESH', function() { loadOnlineList(); drawMenu(); }, false, 20);
-    panelBtn(menuBtns, 456, 440, 400, 44, 'BACK', function() { mp.mode = 'choose'; drawMenu(); }, false, 20);
-  } else {
-    panelBtn(menuBtns, 60, 160, 380, 58, 'HOST GAME', startHostUi, false, 24);
-    panelBtn(menuBtns, 60, 226, 380, 58, 'JOIN GAME', startJoinUi, false, 24);
-    panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { mp.mode = 'choose'; drawMenu(); }, false, 26);
-  }
+ if (mp.mode === 'choose') {
+ panelBtn(menuBtns, 60, 150, 380, 58, 'ONLINE', function() {
+ mp.mode = 'unsupported';
+ drawMenu();
+ }, false, 24);
+ panelBtn(menuBtns, 60, 224, 380, 58, 'LAN', function() { mp.mode = 'lan'; mp.err = ''; drawMenu(); }, false, 24);
+ panelBtn(menuBtns, 60, 300, 300, 58, 'CUSTOMIZE', function() { view = 'customize'; drawMenu(); }, false, 24);
+ mpBackHub();
+ } else if (mp.mode === 'online') {
+ let y = 150;
+ mp.servers.forEach(function(e) {
+ const lock = e.password ? ' [lock]' : '';
+ const locked = !!e.password;
+ panelRow(menuBtns, y, e.name + ' · ' + (e.map || '?') + ' · ' + (e.mode || '') + lock, [
+ { x: 700, w: 180, label: locked ? 'LOCKED' : 'JOIN', dim: locked,
+ fn: locked ? null : function() { pickOnlineServer(e); } },
+ ]);
+ y += 52;
+ });
+ if (!mp.servers.length) mpLine('NO SERVERS', y + 6, 'rgba(255,255,255,0.6)');
+ panelBtn(menuBtns, 60, 440, 380, 44, 'REFRESH', function() { loadOnlineList(); drawMenu(); }, false, 20);
+ panelBtn(menuBtns, 456, 440, 400, 44, 'BACK', function() { mp.mode = 'choose'; drawMenu(); }, false, 20);
+ } else if (mp.mode === 'unsupported') {
+ ctx.fillStyle = '#fff';
+ ctx.font = '500 36px Tomorrow,monospace';
+ ctx.textAlign = 'center';
+ ctx.textBaseline = 'middle';
+ textShadow(true);
+ ctx.fillText('ONLINE MODE IS NOW UNSUPPORTED', 512, 200);
+ textShadow(false);
+ panelBtn(menuBtns, 362, 300, 300, 56, 'BACK', function() { mp.mode = 'choose'; drawMenu(); }, false, 24);
+ } else {
+ panelBtn(menuBtns, 60, 160, 380, 58, 'HOST GAME', startHostUi, false, 24);
+ panelBtn(menuBtns, 60, 226, 380, 58, 'JOIN GAME', startJoinUi, false, 24);
+ panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { mp.mode = 'choose'; drawMenu(); }, false, 26);
+ }
 }
 
 function pickOnlineServer(e) {
@@ -879,6 +912,7 @@ function menuPanel() {
 }
 document.addEventListener('click', function(e) {
   if (netOpen()) return;
+  if (menuActive()) return;
 
 
   if (!(S.hub || S.won || S.story || pvpLobbyActive())) return;
@@ -938,6 +972,11 @@ window.addEventListener('wheel', function(e) {
   if (netOpen()) return;
   if (!(S.hub || pvpLobbyActive())) return;
   e.preventDefault();
+  if (S.hub && view === 'campaign') {
+    campScroll += e.deltaY;
+    drawMenu();
+    return;
+  }
   hubZoom = THREE.MathUtils.clamp(hubZoom - e.deltaY * 0.0012, 0, 1);
   camera.fov = 70 - hubZoom * 38;
   camera.updateProjectionMatrix();
@@ -959,6 +998,11 @@ window.addEventListener('wheel', function(e) {
   }
   const on = S.hub || S.won || S.story || pvpLobbyActive();
   cross.style.display = (on && S.isLocked) ? 'block' : 'none';
+
+  if (S.hub && view === 'hub') {
+    if (menuActive()) { if (mesh.visible) boardHide(mesh); if (adMesh.visible) boardHide(adMesh); }
+    else { if (!mesh.visible) boardShow(mesh); if (!adMesh.visible) boardShow(adMesh); }
+  }
   const p = (on && S.isLocked) ? menuPanel() : null;
   const h = p ? centerHit(p.m, p.b) : null;
   const lbl = h && h.fn ? h.label : null;

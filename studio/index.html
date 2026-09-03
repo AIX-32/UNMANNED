@@ -757,6 +757,12 @@ kbd {
     <h3>FILE</h3>
     <div class="card-body">
       <div class="row"><label>name</label><input type="text" id="mapName" value="map01"></div>
+      <div class="row"><label>night map</label>
+        <label style="margin-left:auto"><input type="checkbox" id="nightToggle"> Night</label>
+      </div>
+      <div class="row"><label>midnight</label>
+        <label style="margin-left:auto"><input type="checkbox" id="midnightToggle"> almost blind</label>
+      </div>
       <div class="grid2">
         <button id="bNew">New</button>
         <button id="bPlay">▶ Play</button>
@@ -782,7 +788,7 @@ kbd {
     <div class="card-body">
       <div class="row"><label>base tile</label><select id="groundSel"></select></div>
       <div class="row"><label>tile m</label><input type="number" id="groundTile" value="4" min="0.5" max="200" step="0.5"><span>m</span></div>
-      <div class="row"><label><input type="checkbox" id="groundUnlit"> true colors</label></div>
+      <div class="row"><label>true light</label><input type="range" id="groundUnlit" min="0" max="100" step="1" value="0"><span id="groundUnlitV">0%</span></div>
       <div class="row">
         <button id="groundUpload">upload tile…</button>
         <button id="groundReset">default grass</button>
@@ -853,12 +859,12 @@ kbd {
         <button id="tbReset" style="grid-column:span 2">reset to formula</button>
       </div>
       <div class="row"><label>radius</label><input type="range" id="tbRadius" min="2" max="30" step="1" value="8"><span id="tbRadiusV">8m</span></div>
-      <div class="row"><label>strength</label><input type="range" id="tbStrength" min="0.2" max="8" step="0.2" value="2"><span id="tbStrengthV">2.0</span></div>
+      <div class="row"><label>strength</label><input type="range" id="tbStrength" min="0.2" max="17" step="0.2" value="2"><span id="tbStrengthV">2.0</span></div>
       <div class="divider"></div>
       <div class="row"><button id="tbMountains" class="primary">⛰ generate mountains</button></div>
-      <div class="row"><label>peak</label><input type="range" id="mtPeak" min="5" max="40" step="1" value="15"><span id="mtPeakV">15m</span></div>
+      <div class="row"><label>peak</label><input type="range" id="mtPeak" min="5" max="80" step="1" value="15"><span id="mtPeakV">15m</span></div>
       <div class="row"><label>stone</label><select id="mtTex"></select></div>
-      <div class="row"><label>above</label><input type="range" id="mtAbove" min="0" max="40" step="0.5" value="6"><span id="mtAboveV">6m</span></div>
+      <div class="row"><label>above</label><input type="range" id="mtAbove" min="0" max="80" step="0.5" value="6"><span id="mtAboveV">6m</span></div>
       <div class="row"><button id="tbBakeStone">re-bake stone now</button></div>
       <div class="row" style="color:#888">ridged mountains ring the map edge · stone texture covers slopes above the height line · re-bake re-stamps after manual brush edits</div>
     </div>
