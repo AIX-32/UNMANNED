@@ -4,6 +4,7 @@ import { scene, camera, gunAmbient, gunKey, gunHemi } from './core.js';
 import { S } from './state.js';
 import { syncHub } from './menu.js';
 import { buildUgvGrid, setUgvMapReady } from './ugv.js';
+import { identExtractZone, clearExtractZone } from './ident.js';
 import { setTurretMapReady } from './turret.js';
 import { setDroneMapReady } from './drone.js';
 import { setBossMapReady } from './boss.js';
@@ -298,7 +299,7 @@ let groundMesh = null;
 function buildGround() {
 
   if (groundMesh) { scene.remove(groundMesh); groundMesh.geometry.dispose(); groundMesh.material.dispose(); groundMesh = null; }
-  const geo = new THREE.PlaneGeometry(200, 200, terrainSegs, terrainSegs);
+  const geo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegs, terrainSegs);
   const gpos = geo.attributes.position;
   for (let i = 0; i < gpos.count; i++) {
     gpos.setZ(i, groundHeight(gpos.getX(i), -gpos.getY(i)));
@@ -718,6 +719,16 @@ export function inGrass(x, z) {
 
 
 export const MAP_SPAWNS = { player: null, ugvs: [], drones: [], turrets: [], bosses: [], ugvRoute: [], extract: null, sectors: [], healthBoxes: [], pvp: [] };
+export const EXTRACT_R = 6;
+export function atExtract() {
+  const e = MAP_SPAWNS.extract;
+  if (!e) return true;
+  return Math.hypot(camera.position.x - e[0], camera.position.z - e[1]) < EXTRACT_R;
+}
+function placeExtract(x, z) {
+  // ponytail: outline via ident rig only
+  identExtractZone(x, groundHeight(x, z) + 2, z, EXTRACT_R * 2, 4);
+}
 
 
 
@@ -785,12 +796,16 @@ export function applyMap(j) {
   applyNight(j && j.night, j && j.midnight);
   S.storyData = (j && j.story && (j.story.sections || j.story.cam || j.story.triggers)) ? j.story : null;
   S.mapCC = 0;
+  // ponytail: deaths survive FULL RESTART (reload), cleared on win
+  try { S.mapDeaths = parseInt(localStorage.getItem('gault_deaths_' + S.mapName) || '0', 10) || 0; } catch (e) { S.mapDeaths = 0; }
   S.mapBoxes = 0;
   S.mapGrenades = 4;
   while (hboxPickups.length) { scene.remove(hboxPickups.pop().mesh); }
   MAP_SPAWNS.sectors = (j.sectors || []).map(function(s) { return s.pts || []; });
   MAP_SPAWNS.healthBoxes = [];
   MAP_SPAWNS.pvp = [];
+  MAP_SPAWNS.extract = null;
+  clearExtractZone();
   if (j.terrain && j.terrain.heights) {
     setTerrain(Float32Array.from(j.terrain.heights), j.terrain.segs || 64, j.terrain.size || 200);
   }
@@ -812,7 +827,7 @@ export function applyMap(j) {
     else if (e.kind === 'ugv') MAP_SPAWNS.ugvs.push({ x: e.pos[0], z: e.pos[1], sector: e.sector });
     else if (e.kind === 'turret') MAP_SPAWNS.turrets.push([e.pos[0], e.pos[1], e.rotY || 0]);
     else if (e.kind === 'boss') MAP_SPAWNS.bosses.push([e.pos[0], e.pos[1], e.rotY || 0]);
-    else if (e.kind === 'extract') MAP_SPAWNS.extract = [e.pos[0], e.pos[1]];
+    else if (e.kind === 'extract') { MAP_SPAWNS.extract = [e.pos[0], e.pos[1]]; placeExtract(e.pos[0], e.pos[1]); }
     else if (e.kind === 'healthbox') MAP_SPAWNS.healthBoxes.push([e.pos[0], e.pos[1]]);
     else if (e.kind === 'player') {
       MAP_SPAWNS.player = [e.pos[0], e.pos[1], e.rotY || 0];

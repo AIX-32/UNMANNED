@@ -34,12 +34,12 @@ const _proj = new THREE.Vector3();
 export let frameNow = 0;
 export const postMat = new THREE.ShaderMaterial({
   uniforms: {
-    tDiffuse: { value: rt.texture }, uTime: { value: 0 }, uCA: { value: 0.02 },
+    tDiffuse: { value: rt.texture }, uTime: { value: 0 }, uCA: { value: 0.02 }, uPix: { value: new THREE.Vector2(rt.width, rt.height) },
     uShock: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: [
-    'varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uCA; uniform vec4 uShock[4];',
+    'varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uCA; uniform vec2 uPix; uniform vec4 uShock[4];',
     'void main(){',
 
     '  vec2 suv = vUv;',
@@ -52,6 +52,8 @@ export const postMat = new THREE.ShaderMaterial({
     '    float ring = sin((d - r) * 44.0) * exp(-(d - r) * (d - r) * 260.0);',
     '    suv += dirv * ring * 0.035 * w;',
     '  }',
+    '  // ponytail: snap warp behind pixel grid so ring moves in chunks',
+    '  suv = floor(suv * uPix) / uPix;',
 
     '  float d = distance(suv, vec2(0.5));',
     '  float ca = d * d * uCA;',
@@ -64,7 +66,7 @@ export const postMat = new THREE.ShaderMaterial({
     '  c = mix(vec3(l), c, 1.05);',
     '  c = floor(c * 32.0 + 0.5) / 32.0;',
 
-    '  c += (fract(sin(dot(suv * 400.0, vec2(12.9898,78.233)) + uTime * 60.0)) - 0.5) * 0.03;',
+    '  c += (fract(sin(dot(vUv * 400.0, vec2(12.9898,78.233)) + uTime * 60.0)) - 0.5) * 0.03;',
     '  gl_FragColor = vec4(c, 1.0);',
     '}'
   ].join('\n')
@@ -78,12 +80,14 @@ window.addEventListener('resize', function() {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   rt.setSize(Math.floor(window.innerWidth / PIXEL_SCALE), Math.floor(window.innerHeight / PIXEL_SCALE));
+  postMat.uniforms.uPix.value.set(rt.width, rt.height);
 });
 
 
 export function renderFrame(now) {
   frameNow = now;
   postMat.uniforms.uTime.value = now;
+  postMat.uniforms.uPix.value.set(rt.width, rt.height);
 
   const arr = postMat.uniforms.uShock.value;
   for (let i = shockwaves.length - 1; i >= 0; i--) {

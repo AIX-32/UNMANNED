@@ -1,15 +1,19 @@
 'use strict';
 
-export const SEGS = 64, SIZE = 200, HALF = SIZE / 2, W = SEGS + 1;
+export const SEGS = 64, W = SEGS + 1;
+// ponytail: mutable, follows loaded map via syncSize (segs stay 64)
+export let SIZE = 200, HALF = 100;
 export function formulaHeight(x, z) {
   return Math.sin(x * 0.15) * Math.cos(z * 0.11) * 0.35 + Math.sin(x * 0.6 + z * 0.4) * 0.12;
 }
-export function freshMap(name) {
+export function freshMap(name, size) {
+  const sz = Math.max(50, Math.min(400, parseFloat(size) || 200));
+  const half = sz / 2;
   const heights = [];
   for (let iz = 0; iz < W; iz++) for (let ix = 0; ix < W; ix++) {
-    heights.push(formulaHeight(-HALF + ix * (SIZE / SEGS), -HALF + iz * (SIZE / SEGS)));
+    heights.push(formulaHeight(-half + ix * (sz / SEGS), -half + iz * (sz / SEGS)));
   }
-  return { name: name || 'map01', terrain: { segs: SEGS, size: SIZE, heights: heights },
+  return { name: name || 'map01', terrain: { segs: SEGS, size: sz, heights: heights },
            props: [], blocks: [], entities: [], routes: { ugv: [] }, walls: [], sectors: [], splat: freshSplat(),
            grass: freshGrass(), ground: null, story: freshStory(), pvp: false };
 }
@@ -21,6 +25,11 @@ export function freshStory() {
   return { cam: [],
            sections: [],
            triggers: [] };
+}
+export function syncSize() {
+  const s = (S.map && S.map.terrain && parseFloat(S.map.terrain.size)) || 200;
+  SIZE = Math.max(50, Math.min(400, s));
+  HALF = SIZE / 2;
 }
 
 

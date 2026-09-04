@@ -1,6 +1,6 @@
 'use strict';
 
-import { S, SEGS, SIZE, HALF, W, freshSplat, formulaHeight } from './state.js';
+import { S, SEGS, SIZE, HALF, W, freshSplat, formulaHeight, syncSize } from './state.js';
 import * as idb from '../idb.js';
 
 export function $(id) { return document.getElementById(id); }
@@ -302,6 +302,9 @@ export function buildEntityVisual(e, i) {
   }
 }
 export function rebuildAll() {
+  syncSize();
+  const szEl = $('mapSize');
+  if (szEl) szEl.value = SIZE;
   if (!S.map.splat) S.map.splat = freshSplat();
   if (!S.map.walls) S.map.walls = [];
   if (!S.map.sectors) S.map.sectors = [];

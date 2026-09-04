@@ -98,7 +98,14 @@ scene.add(ugvFlashLight);
 function ugvShoot(u) {
   const origin = new THREE.Vector3(u.x, groundHeight(u.x, u.z) + u.top * 0.7, u.z);
   const dir = new THREE.Vector3().subVectors(camera.position, origin).normalize();
+  const dist = origin.distanceTo(camera.position);
+  // ponytail: flat miss chance, ~0 point-blank, retune weights if too easy/hard
+  const moving = S.keys['KeyW'] || S.keys['KeyA'] || S.keys['KeyS'] || S.keys['KeyD'];
+  const missP = THREE.MathUtils.clamp(0.15 + 0.55 * (dist / FIRE_RANGE) + (moving ? 0.15 : 0), 0, 0.85)
+    * THREE.MathUtils.clamp((dist - 2) / 7, 0, 1);
+  const missed = Math.random() < missP;
   const end = camera.position.clone().addScaledVector(dir, 2);
+  if (missed) { end.x += (Math.random() - 0.5) * 3; end.y += (Math.random() - 0.2) * 2; end.z += (Math.random() - 0.5) * 3; }
   const geo = new THREE.BufferGeometry().setFromPoints([origin, end]);
   const line = new THREE.Line(geo, tracerMat);
   line.raycast = function() {};
@@ -116,7 +123,7 @@ function ugvShoot(u) {
     u.flashSpr.scale.set(fs, fs, 1);
     u.flashSpr.visible = true;
   }
-  if (!evadedShot(origin)) damagePlayer(UGV_DMG, origin);
+  if (!missed && !evadedShot(origin)) damagePlayer(UGV_DMG, origin);
 }
 
 

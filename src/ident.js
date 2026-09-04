@@ -38,6 +38,8 @@ const lock = makeRig();
 enemy.children[1].visible = false;
 landing.children[1].visible = false;
 lock.children[1].visible = false;
+const extractRig = makeRig();
+extractRig.children[1].visible = false;
 
 
 
@@ -108,6 +110,7 @@ function snapTick(s, dt) {
 const snapEnemyX = makeSnap(), snapEnemyY = makeSnap();
 const snapLandX = makeSnap(), snapLandY = makeSnap();
 const snapLockX = makeSnap(), snapLockY = makeSnap();
+const snapExtX = makeSnap(), snapExtY = makeSnap();
 
 let enemyTarget = null, enemyT = 0;
 let landingPt = null, landingShow = false;
@@ -119,6 +122,9 @@ export function identLanding(point) { landingPt = point; }
 export function setLandingVisible(v) { landingShow = v; }
 export function identLock(group) { lockTarget = group; }
 export function clearIdentLock() { lockTarget = null; lock.visible = false; }
+let extractBox = null;
+export function identExtractZone(x, y, z, w, h) { extractBox = { x, y, z, w, h }; }
+export function clearExtractZone() { extractBox = null; extractRig.visible = false; }
 export function identCmlLock(group) { cmlLockTarget = group; }
 export function clearCmlLock() { cmlLockTarget = null; cmlLock.visible = false; }
 
@@ -188,6 +194,12 @@ export function updateIdent(dt, now) {
     const boxH = Math.max((_sz.y + 0.5) * sy, dist * MIN_SCREEN);
     fitBox(lock, _c.x, _c.y, _c.z, boxW, boxH);
   } else if (lockTarget) { lockTarget = null; lock.visible = false; }
+
+
+  if (extractBox) {
+    fitBox(extractRig, extractBox.x, extractBox.y, extractBox.z,
+      extractBox.w * snapTick(snapExtX, dt), extractBox.h * snapTick(snapExtY, dt));
+  } else extractRig.visible = false;
 
 
 

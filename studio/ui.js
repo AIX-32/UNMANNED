@@ -338,10 +338,10 @@ export function initUI() {
   $('mapName').addEventListener('input', function() { S.map.name = this.value; });
   $('bNew').onclick = function() {
     pushUndo();
-    S.map = freshMap($('mapName').value || 'map01');
+    S.map = freshMap($('mapName').value || 'map01', parseFloat($('mapSize').value) || 200);
     rebuildAll(); dump(); saveAutosave();
     syncPvpUi();
-    status('fresh map (formula terrain)');
+    status('fresh ' + SIZE + 'm map (formula terrain)');
   };
   $('bPlay').onclick = async function() {
     if (!pvpSpawnCheck()) return;

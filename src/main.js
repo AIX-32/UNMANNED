@@ -4,7 +4,7 @@ import { scene, camera, gunScene, postMat, renderFrame } from './core.js';
 import { S, GUN_POS, GUN_ROT, ADS_POS, ADS_ROT, recoilPivot, inGun, takeLook } from './state.js';
 import { updateFiring, hudInfo, flashSync, FLASH, FLASH_DEBUG, curWeaponName, getGunModel, flash, getMuzzleFlash, reloadK, switchK, getWorldFlash, updateLandingMarker, wgsSpeedBoost, weaponSpeedMul, bashRot, bashThrust, viewPos, viewRot, updateBoxUse, cancelBox, boxDip, boxUseInfo } from './weapons.js';
 import { updateAmmoUI, updateHpUI, updateCcUI, updateRadarUI, updateGrenadeUI, updatePvpHud, updateHudVisibility, setHpFlash, showDeathScreen, hideDeathBoard, flashDbg, placeUIPanels, showSubtitle, updateSubtitle, placeBossHud, updateBoxBar, hideBoxBar, requestGameLock } from './ui.js';
-import { resolveCollisions, updateTurret, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes } from './world.js';
+import { resolveCollisions, updateTurret, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract } from './world.js';
 import { updateUgv, allUgvsDead, ugvCount, lowerCert as ugvLowerCert } from './ugv.js';
 import { updateTurrets, allTurretsDead, turretCount, lowerCert as turretLowerCert } from './turret.js';
 import { updateDrone, lowerCert as droneLowerCert } from './drone.js';
@@ -69,6 +69,7 @@ const _swayQuat = new THREE.Quaternion();
 
 const DEATH_ANIM = 1.8;
 let deathT = 0, deathAnimating = false;
+let extractHintAt = -99;
 const deathStartE = new THREE.Euler(0, 0, 0, 'YXZ');
 let deathStartY = 1.7;
 
@@ -527,7 +528,11 @@ function playTick(dt, now) {
 
   updateTurret(dt);
   updateUgv(dt, now);
-  if (!S.dead && !S.won && (ugvCount() + turretCount() + bossCount()) > 0 && allUgvsDead() && allTurretsDead() && allBossesDead()) showWin();
+  // ponytail: extract maps win on reaching the zone, others on clearing foes
+  const foes = ugvCount() + turretCount() + bossCount();
+  const cleared = foes > 0 && allUgvsDead() && allTurretsDead() && allBossesDead();
+  if (!S.dead && !S.won && ((MAP_SPAWNS.extract && atExtract()) || (!MAP_SPAWNS.extract && cleared))) showWin();
+  else if (!S.dead && !S.won && cleared && MAP_SPAWNS.extract && now - extractHintAt > 8) { extractHintAt = now; showSubtitle('GET TO EXTRACTION'); }
   updateTurrets(dt, now);
   updateDrone(dt, now);
   updateBoss(dt, now);
@@ -582,6 +587,8 @@ function animate() {
     cancelBox();
     if (!wasDead) {
       wasDead = true;
+      S.mapDeaths = (S.mapDeaths || 0) + 1;
+      try { localStorage.setItem('gault_deaths_' + S.mapName, String(S.mapDeaths)); } catch (e) {}
       deathT = 0;
       deathAnimating = true;
       deathStartE.copy(S.euler);

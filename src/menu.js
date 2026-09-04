@@ -5,7 +5,7 @@
 
 import { scene, camera, gunScene } from './core.js';
 import { S } from './state.js';
-import { setPauseMenuVisible, requestGameLock, ccTotal, addCc, bankMapCc, boardShow, boardHide, boardReopen, openSettings, menuActive } from './ui.js';
+import { setPauseMenuVisible, requestGameLock, ccTotal, addCc, bankMapCc, boardShow, boardHide, boardReopen, openSettings, menuActive, hideDeathBoard } from './ui.js';
 import { WEAPONS, getOwned, buyGun, isOwned, getLoadout, setLoadoutSlot, boxCount, buyBox } from './weapons.js';
 import { buyBattery } from './radar.js';
 import { startHostUi, startJoinUi, netOpen, getStatus as sessionStatus, onStatus as netOnStatus, onNetVisibility, myName, randomName, pasteName, endSession } from './net.js';
@@ -54,6 +54,7 @@ const CAMPAIGN = [
   { map: 'SilenceVale', desc: '' },
   { map: 'Drift', desc: '' },
   { map: 'Haywire', desc: '' },
+  { map: 'Yank', desc: '' },
 ];
 const LVLPLAY = [
   { map: 'Yazd', desc: '' },
@@ -1105,6 +1106,7 @@ function currentMap() {
 
 export function showWin() {
   S.won = true;
+  try { localStorage.removeItem('gault_deaths_' + S.mapName); } catch (e) {}
   if (currentMap() === 'Takkera') addCc(500);
   bankMapCc();
   if (document.pointerLockElement) document.exitPointerLock();
@@ -1119,6 +1121,16 @@ export function showWin() {
   boardShow(winMesh);
   drawWin();
 }
+
+// ponytail: pity skip, flat 500 vault fee then normal win
+export function skipMap() {
+  if ((S.mapDeaths || 0) <= 3 || S.pvp || S.won) return;
+  if (ccTotal() < 500) return;
+  idb.set('gault_cc', String(ccTotal() - 500));
+  hideDeathBoard();
+  showWin();
+}
+S.skipMap = skipMap;
 
 window.__gaultMenu = {
   isHub: function() { return S.hub; },

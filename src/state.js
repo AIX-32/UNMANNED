@@ -42,7 +42,7 @@ export const S = {
 
 
   hp: 40, maxHp: 40, dead: false,
-  mapCC: 0,
+  mapCC: 0, mapDeaths: 0,
   mapBoxes: 0,
   mapGrenades: 4,
   respawnRequested: false,

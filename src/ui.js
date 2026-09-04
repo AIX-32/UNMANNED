@@ -308,11 +308,11 @@ export function updateSubtitle() {
 
 
 const deathC = document.createElement('canvas');
-deathC.width = 1024; deathC.height = 512;
+deathC.width = 1024; deathC.height = 600;
 const deathCtx = deathC.getContext('2d');
 const deathTex = new THREE.CanvasTexture(deathC);
 deathTex.minFilter = THREE.LinearFilter;
-const deathMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.525),
+const deathMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.615),
   new THREE.MeshBasicMaterial({ map: deathTex, transparent: true, depthTest: false, depthWrite: false }));
 deathMesh.renderOrder = 980;
 deathMesh.visible = false;
@@ -399,6 +399,17 @@ function drawDeath() {
     ctx.fillStyle = '#fff';
     fillLabel(ctx, 'BACK TO HUB', W / 2, ry + rh + 32, bw, 40, 36);
     deathBtns.push({ x: bx, y: ry + rh + 12, w: bw, h: 40, hub: true });
+    // ponytail: pity skip, flat 500 vault fee
+    if ((S.mapDeaths || 0) > 3) {
+      const affordSkip = ccTotal() >= 500;
+      const sy = ry + rh + 64;
+      ctx.strokeStyle = affordSkip ? '#fd5' : '#666';
+      ctx.lineWidth = affordSkip ? 4 : 2;
+      ctx.strokeRect(bx, sy, bw, 40);
+      ctx.fillStyle = affordSkip ? '#fd5' : '#666';
+      fillLabel(ctx, affordSkip ? 'SKIP MAP  (-500 CC)' : ('SKIP MAP  (NEED ' + (500 - ccTotal()) + ' CC)'), W / 2, sy + 20, bw, 40, 36);
+      deathBtns.push({ x: bx, y: sy, w: bw, h: 40, skip: true, afford: affordSkip });
+    }
   }
   deathTex.needsUpdate = true;
 }
@@ -433,6 +444,7 @@ document.addEventListener('pointerdown', function(e) {
   if (b.hub) { location.href = 'index.html'; return; }
   if (b.killcam) { S.killCam(); return; }
   if (b.pvpquit) { if (S.pvpQuit) S.pvpQuit(); return; }
+  if (b.skip) { if (b.afford && S.skipMap) S.skipMap(); return; }
   if (b.afford) {
     if (!S.pvp) S.mapCC -= 100;
     S.respawnRequested = true;

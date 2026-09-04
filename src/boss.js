@@ -223,8 +223,12 @@ function attachOf(b, local) {
   return new THREE.Vector3(local[0], local[1], local[2]).applyMatrix4(b.model.matrixWorld);
 }
 function bossFire(b) {
- const origin = attachOf(b, BOSS_FLASH.pos);
- let dir = new THREE.Vector3().subVectors(camera.position, origin).normalize();
+  const origin = attachOf(b, BOSS_FLASH.pos);
+  let dir = new THREE.Vector3().subVectors(camera.position, origin).normalize();
+  // ponytail: flat miss chance like UGVs, missiles untouched
+  const dist = origin.distanceTo(camera.position);
+  const moving = S.keys['KeyW'] || S.keys['KeyA'] || S.keys['KeyS'] || S.keys['KeyD'];
+  const missed = Math.random() < THREE.MathUtils.clamp(0.15 + 0.55 * (dist / FIRE_RANGE) + (moving ? 0.15 : 0), 0, 0.85);
 
  const spread = b.spread || SPREAD_BASE;
  if (spread > 0) {
@@ -258,7 +262,7 @@ function bossFire(b) {
  b.flashSpr.scale.set(fs, fs, 1);
  b.flashSpr.visible = true;
  }
- if (!evadedShot(origin)) damagePlayer(BOSS_DMG, origin);
+  if (!missed && !evadedShot(origin)) damagePlayer(BOSS_DMG, origin);
 
   b.spread = Math.min(b.spread + SPREAD_BLOOM, SPREAD_MAX);
 }
