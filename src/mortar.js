@@ -48,6 +48,7 @@ function ensureMesh(){
   if (mortarMesh || !mortarProto) return;
   mortarMesh = mortarProto.clone(true);
   mortarMesh.traverse(function(c){ if(c.isMesh){ c.castShadow=true; c.receiveShadow=true; }});
+  mortarMesh.rotation.y = -Math.PI / 2; // model faces left by default; clock it 90°
   scene.add(mortarMesh);
 }
 
@@ -125,11 +126,9 @@ export function updateMortar(dt){
       mortarMesh.position.set(anchor.x, anchor.y + drop, anchor.z);
       const sc = (0.18 + 0.82*e) * over;
       mortarMesh.scale.setScalar(sc);
-      mortarMesh.rotation.y = anchorYaw + (1 - e) * 0.45;
       if (k >= 1){
         mortarMesh.position.set(anchor.x, anchor.y, anchor.z);
         mortarMesh.scale.setScalar(1);
-        mortarMesh.rotation.y = anchorYaw;
         // thump
         S.shakeY += 0.025;
         S.shakeX += (Math.random()-0.5)*0.02;
@@ -137,11 +136,6 @@ export function updateMortar(dt){
     } else {
       mortarMesh.position.set(anchor.x, anchor.y, anchor.z);
       mortarMesh.scale.setScalar(1);
-      mortarMesh.rotation.y = anchorYaw;
-      // barrel pitch toward target — ponytail: cheap pitch lerp, no rig
-      const dd = Math.hypot(mortarTarget.x - anchor.x, mortarTarget.z - anchor.z);
-      const pitch = 0.85 - (dd / MAX_RANGE) * 0.42; // ~48deg close, 24deg far
-      mortarMesh.rotation.x = THREE.MathUtils.lerp(mortarMesh.rotation.x, -pitch, dt*6);
     }
   }
 
