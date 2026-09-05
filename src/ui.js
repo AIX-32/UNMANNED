@@ -7,6 +7,7 @@ import { applyAimAssist as applyTurretAssist } from './turret.js';
 import { applyAimAssist as applyBossAssist, bossInfo, BOSS_NAME } from './boss.js';
 import { radar, batteryMax } from './radar.js';
 import * as idb from '../idb.js';
+import { enterPhoto, isPhoto } from './photo.js';
 
 
 
@@ -574,10 +575,11 @@ function drawMenu() {
   if (menuView === 0) {
     ctx.font = TITLE_FONT;
     ctx.textBaseline = 'middle';
-    ctx.fillText('PAUSED', W / 2, 100);
-    menuBtns.push(menuBtn(352, 220, 320, 62, S.everLocked ? 'RESUME' : 'START', 'btn'));
-    menuBtns.push(menuBtn(352, 302, 320, 62, 'SETTINGS', 'btn'));
-    menuBtns.push(menuBtn(352, 384, 320, 62, 'MAIN MENU', 'btn'));
+    ctx.fillText('PAUSED', W / 2, 80);
+    menuBtns.push(menuBtn(352, 150, 320, 48, S.everLocked ? 'RESUME' : 'START', 'btn'));
+    menuBtns.push(menuBtn(352, 206, 320, 48, 'PHOTO MODE', 'btn'));
+    menuBtns.push(menuBtn(352, 262, 320, 48, 'SETTINGS', 'btn'));
+    menuBtns.push(menuBtn(352, 318, 320, 48, 'MAIN MENU', 'btn'));
   } else {
     ctx.font = TITLE_FONT;
     ctx.textBaseline = 'middle';
@@ -676,6 +678,11 @@ function fireMenuButton(b) {
       idb.set('gault_laptop', S.settings.laptop ? '1' : '0');
     }
     drawMenu();
+  } else if (b.label === 'PHOTO MODE') {
+    boardHide(menuMesh);
+    S.paused = false;
+    enterPhoto();
+    return;
   } else if (b.label === 'SETTINGS') {
     menuView = 1; drawMenu();
   } else if (b.label === 'BACK') {
@@ -752,6 +759,7 @@ document.addEventListener('pointerlockchange', function() {
   lockPending = false;
   const firstLock = !S.everLocked;
   if (S.isLocked) S.everLocked = true;
+  if (S.photo) { return; }
   if (S.dead || S.won || S.hub || S.story) { boardHide(menuMesh); S.paused = false; return; }
   if (firstLock) { boardHide(menuMesh); S.paused = false; return; }
   if (wasLocked && !S.isLocked) {

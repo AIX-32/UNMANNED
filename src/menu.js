@@ -61,6 +61,23 @@ const CAMPAIGN = [
 const LVLPLAY = [
   { map: 'Yazd', desc: '' },
 ];
+// ponytail: campaign preview cache — images in assets/preview/<Map>.png|.jpg
+const campPreviewCache = {};
+let campHoverMap = null;
+function campPreview(map){
+  if (campPreviewCache[map] !== undefined) return campPreviewCache[map];
+  campPreviewCache[map] = null;
+  const img = new Image();
+  img.onload = function(){ campPreviewCache[map]=img; if(view==='campaign') drawMenu(); };
+  img.onerror = function(){
+    const img2 = new Image();
+    img2.onload = function(){ campPreviewCache[map]=img2; if(view==='campaign') drawMenu(); };
+    img2.onerror = function(){ campPreviewCache[map]=false; if(view==='campaign') drawMenu(); };
+    img2.src = 'assets/preview/' + map + '.jpg';
+  };
+  img.src = 'assets/preview/' + map + '.png';
+  return null;
+}
 
 const CAMP_KEY = 'gault_campaign';
 const LIB_KEY = 'gault_custom_lib';
@@ -357,25 +374,65 @@ function drawMenu() {
       panelTitle(view.toUpperCase());
     }
     if (view === 'campaign') {
-
-      const maxScroll = Math.max(0, 150 + (CAMPAIGN.length - 1) * 56 + 32 - 432);
+      const maxScroll = Math.max(0, 150 + (CAMPAIGN.length - 1) * 44 + 38 - 420);
       campScroll = Math.max(0, Math.min(maxScroll, campScroll));
-      let y = 150 - campScroll;
+      // left list — clipped under BACK
+      let y = 112 - campScroll;
       CAMPAIGN.forEach(function(lvl, i) {
+        const by = y;
+        y += 44;
+        if (by + 38 < 96 || by > 428) return; // ponytail: don't draw under BACK/top
         const cleared = campBeaten(lvl.map), ok = unlocked(i);
-        panelRow(menuBtns, y, (i + 1) + '. ' + lvl.map + (lvl.desc ? ' — ' + lvl.desc : ''),
-          [{ x: 560, w: 200, label: cleared ? 'CLEARED' : (ok ? 'PLAY' : 'LOCKED'), dim: !ok, fn: ok ? function() { playNamed(lvl.map); } : null }]);
-        y += 56;
+        const label = (i + 1) + '. ' + lvl.map;
+        const dim = !ok;
+        const status = cleared ? ' ✓' : (ok ? '' : '  LOCKED');
+        panelBtn(menuBtns, 36, by, 460, 38, label + status, ok ? (function(m){ return function(){ playNamed(m); }; })(lvl.map) : null, dim, 20);
       });
+      // right preview — outline follows the image aspect; box spans the same height as the
+      // level list (96..428) and keeps the last-hovered map when nothing is hovered
+      const PX = 552, PT = 96, PB = 428;
+      const PW = CW - 24 - PX;
+      let hoverMap = null;
+      if (hoverLabel) {
+        for (let i = 0; i < CAMPAIGN.length; i++) {
+          const lbl = (i + 1) + '. ' + CAMPAIGN[i].map;
+          if (hoverLabel === lbl || hoverLabel === lbl + ' ✓' || hoverLabel === lbl + '  LOCKED') { hoverMap = CAMPAIGN[i].map; break; }
+        }
+      }
+      if (hoverMap) campHoverMap = hoverMap;
+      const pMap = campHoverMap || CAMPAIGN[0].map;
+      const pImg = campPreview(pMap);
+      let bw, bh;
+      if (pImg && pImg.complete && pImg.naturalWidth) {
+        bw = PW; bh = PW * pImg.naturalHeight / pImg.naturalWidth;
+      } else {
+        bw = PW; bh = PW * 9 / 16;
+      }
+      if (bh > PB - PT) { bh = PB - PT; bw = bh * (pImg && pImg.complete && pImg.naturalWidth ? pImg.naturalWidth / pImg.naturalHeight : 16 / 9); }
+      const bx = PX + (PW - bw) / 2, by = PT + (PB - PT - bh) / 2;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.strokeRect(bx, by, bw, bh);
+      ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(bx, by, bw, bh);
+      if (pImg && pImg.complete && pImg.naturalWidth) {
+        try { ctx.drawImage(pImg, bx, by, bw, bh); } catch (e) {}
+      } else if (pImg === false) {
+        ctx.fillStyle = '#fff'; ctx.font = '700 22px Tomorrow,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('NO PREVIEW', bx + bw / 2, by + bh / 2); ctx.textAlign = 'left';
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '600 16px Tomorrow,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('HOVER A MAP', bx + bw / 2, by + bh / 2); ctx.textAlign = 'left';
+        if (pMap) campPreview(pMap);
+      }
+      ctx.fillStyle = '#fff'; ctx.font = '700 18px Tomorrow,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      textShadow(true); ctx.fillText(pMap, bx + bw / 2, by + bh + 8); textShadow(false); ctx.textAlign = 'left';
       if (maxScroll > 0) {
         ctx.fillStyle = '#fff';
         ctx.font = '700 20px Tomorrow,monospace';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
-        ctx.fillText('SCROLL ↓', CW - 36, 430);
+        ctx.fillText('SCROLL ↓', 496, 430);
         ctx.textAlign = 'left';
       }
-      panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { view = 'hub'; drawMenu(); });
+      panelBtn(menuBtns, 36, 440, 460, 44, 'BACK', function() { view = 'hub'; drawMenu(); }, false, 22);
     } else if (view === 'lvlplay') {
       let y = 150;
       LVLPLAY.forEach(function(lvl) {

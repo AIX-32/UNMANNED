@@ -14,6 +14,8 @@ let sniperShotBuffer = null;
 let sniperReloadBuffer = null;
 let droneBuffer = null;
 let explosionBuffer = null;
+let mortarShotBuffer = null;
+let mortarExplosionBuffer = null;
 let ugvShotBuffer = null;
 let sonarBuffer = null;
 decode('assets/audio/sten.m4a', b => stenBuffer = b);
@@ -24,6 +26,8 @@ decode('assets/audio/sniper_shot.mp3', b => sniperShotBuffer = b);
 decode('assets/audio/sniper_reload.mp3', b => sniperReloadBuffer = b);
 decode('assets/audio/drone_flight.mp3', b => droneBuffer = b);
 decode('assets/audio/explosion.mp3', b => explosionBuffer = b);
+decode('assets/audio/mortar_shot.mp3', b => mortarShotBuffer = b);
+decode('assets/audio/mortar_explosion.mp3', b => mortarExplosionBuffer = b);
 decode('assets/audio/ugv_shot.mp3', b => ugvShotBuffer = b);
 decode('assets/audio/sonar.mp3', b => sonarBuffer = b);
 export function getDroneBuffer() { return droneBuffer; }
@@ -80,6 +84,8 @@ export function stenTail() { play(stenBuffer, 0.5); }
 export function sniperShot() { play(sniperShotBuffer, 1.0); }
 export function eagleShot() { playRate(stenBuffer, 0.6, SHOT_DURATION / 0.6, 0.6); }
 export function explosion() { play(explosionBuffer, 1.0); }
+export function mortarShot() { play(mortarShotBuffer, 0.9); }
+export function mortarExplosion() { play(mortarExplosionBuffer, 1.0); }
 export function ugvShot() { play(ugvShotBuffer, 1.0); }
 export function turretShot() { play(stenBuffer, 0.2, 0.08); }
 export function rocketShot() { playRate(ugvShotBuffer, 1.0, 0.9, 0.6); }
@@ -106,6 +112,7 @@ export function bashThud(hit) {
 
 
 export function reloadSound(i) {
+  if (i === 8) return; // mortar has no reload sound
   if (i === 1 && shotgunReloadBuffer) play(shotgunReloadBuffer, 1);
   else if (i === 2 && sniperReloadBuffer) play(sniperReloadBuffer, 1);
   else play(reloadBuffer, 1);

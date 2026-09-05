@@ -47,11 +47,6 @@ export function applyNight(on, mid) {
     paintMesh.material.dispose();
     paintMesh.material = paintMaterial();
   }
-  // ponytail: keep grass unlit (no directional half-dark) but dim+tint at night to match Lambert ground (~0.26 night, ~0.06 midnight)
-  if (grassChunks && grassChunks.length) {
-    const gc = m ? [0.06, 0.07, 0.09] : n ? [0.21, 0.24, 0.30] : [1, 1, 1];
-    grassChunks.forEach(function(c) { c.mesh.material.color.setRGB(gc[0], gc[1], gc[2]); c.mesh.material.needsUpdate = true; });
-  }
 }
 
 
@@ -704,6 +699,7 @@ export function addWall(wall) {
 
 
 let grassChunks = [];
+let grassUnlit = 0; // 0..1 true-color fraction for the current map
 const GRASS_CHUNK = 64; // ponytail: chunk → frustum + distance culled, 64m matches terrain
 function clearGrass() {
   grassChunks.forEach(function(c) { scene.remove(c.mesh); c.mesh.geometry.dispose(); c.mesh.material.dispose(); });
@@ -730,11 +726,16 @@ function buildGrass() {
   let img = texCache[g.tex];
   if (img) { tex.image = img; tex.needsUpdate = true; }
   else { img = new Image(); img.onload = function() { tex.image = img; tex.needsUpdate = true; }; img.src = g.tex; texCache[g.tex] = img; }
-  // ponytail: unlit so both sides same brightness (no moon-direction shading), dim+tint at night
-  const baseMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 });
-  if (midnightOn) baseMat.color.setRGB(0.06, 0.07, 0.09);
-  else if (nightOn) baseMat.color.setRGB(0.21, 0.24, 0.30);
-  else baseMat.color.setRGB(1, 1, 1);
+  // true color (%) = how much stays unlit/full-bright. Low unlit → lit by the real scene
+  // lights (gets the world's orange tint like the ground); high unlit → plain full-color.
+  grassUnlit = Math.max(0, Math.min(1, +(g.unlit ?? 0) || 0));
+  let baseMat;
+  if (grassUnlit >= 1) {
+    baseMat = new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5 });
+  } else {
+    baseMat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5 });
+    if (grassUnlit > 0) { baseMat.emissive = new THREE.Color(0xffffff); baseMat.emissiveMap = tex; baseMat.emissiveIntensity = grassUnlit; baseMat.color.setScalar(1 - grassUnlit); }
+  }
   const entries = Array.from(byChunk.entries());
   const async = g.pts.length > 4000;
   let ei = 0;
@@ -745,7 +746,11 @@ function buildGrass() {
       positions.push(x + hx, y0, z + hz,  x + hx, y0 + h, z + hz,  x - hx, y0, z - hz,  x - hx, y0 + h, z - hz);
       uvs.push(1, 0, 1, 1, 0, 0, 0, 1);
       const b = positions.length / 3;
+      // front faces (CCW): lit by the forced-up normal → the ground's orange tint
       indices.push(b - 4, b - 3, b - 2,  b - 3, b - 1, b - 2);
+      // back faces: same verts, reversed winding (CW). With FrontSide each side renders as
+      // its own front, and both use the up normal → no dark far side, same as the ground.
+      indices.push(b - 4, b - 2, b - 3,  b - 3, b - 2, b - 1);
     };
     pts.forEach(function(pt) {
       const placed = [];
@@ -779,10 +784,13 @@ function buildGrass() {
     geo.computeVertexNormals();
     const gnorm = geo.attributes.normal;
     for (let i = 0; i < gnorm.count; i++) gnorm.setXYZ(i, 0, 1, 0);
+    gnorm.needsUpdate = true;
     geo.computeBoundingSphere();
     const mat = baseMat.clone();
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData.ground = true;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
     mesh.frustumCulled = true;
     // center for distance cull
     const parts = key.split(',');
@@ -1022,6 +1030,7 @@ export function applyMap(j) {
   setBossMapReady();
   setCarMapReady();
   setRcMapReady();
+  if (S.resetMortar) S.resetMortar();
   syncHub();
   S.worldReady = true;
 }

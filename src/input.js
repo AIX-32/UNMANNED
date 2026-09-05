@@ -11,7 +11,7 @@ import { rcActive, rcArmed, armRc, unarm, deployRc, detonateRc } from './rc.js';
 
 const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
 document.addEventListener('mousedown', function(e) {
-  if (S.dead || S.won || S.hub || S.story || S.pvpLobby || isDriving()) return;
+  if (S.photo || S.dead || S.won || S.hub || S.story || S.pvpLobby || isDriving()) return;
   if (rcActive()) return;
   if (rcArmed()) { deployRc(); return; }
   if (S.settings.laptop) return;
@@ -29,20 +29,21 @@ document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
 
 document.addEventListener('wheel', function(e) {
+  if (S.photo) return;
   if (!S.straf || !S.isLocked) return;
   S.aimShift = THREE.MathUtils.clamp(S.aimShift + e.deltaY * 0.001, -1, 1);
   e.preventDefault();
 }, { passive: false });
 
 document.addEventListener('click', function(e) {
-  if (S.dead || S.won || S.hub || S.story || S.pvpLobby) return;
+  if (S.photo || S.dead || S.won || S.hub || S.story || S.pvpLobby) return;
   if (menuActive()) return;
   if (bootActive()) return;
   requestGameLock();
 });
 
 document.addEventListener('mousemove', function(e) {
-  if (!S.isLocked) return;
+  if (S.photo || !S.isLocked) return;
   if (rcActive()) return;
 
 
@@ -75,6 +76,7 @@ document.addEventListener('mousemove', function(e) {
 document.addEventListener('keydown', function(e) {
   if (S.story) return;
   S.keys[e.code] = true;
+  if (S.photo) return;
   if (rcActive()) {
     if (e.code === 'Space' && !e.repeat) detonateRc();
     return;

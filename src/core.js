@@ -19,7 +19,7 @@ export function setRenderSize(size){
   if (camera.far !== far){ camera.far = far; camera.updateProjectionMatrix(); }
 }
 
-export const renderer = new THREE.WebGLRenderer({ antialias: true });
+export const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;

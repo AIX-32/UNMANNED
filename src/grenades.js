@@ -3,7 +3,7 @@ import { scene, camera, shockwaves, frameNow } from './core.js';
 import { S } from './state.js';
 import { pointInCollider, supportHeight } from './world.js';
 import { damageUgvSplash, damagePlayer } from './ugv.js';
-import { explosion } from './audio.js';
+import { explosion, mortarExplosion } from './audio.js';
 
 const PVP_GRENADE_DMG = 40;
 
@@ -59,6 +59,26 @@ export function boomVisual(pos) {
   explosions.push({ smoke: smoke, boom: boom, t: 0 });
 
   shockwaves.push({ pos: pos.clone(), t0: frameNow, dur: 0.25 });
+}
+export function mortarBoomVisual(pos) {
+  mortarExplosion();
+  const boom = new THREE.PointLight(0xffaa44, 6, 40);
+  boom.position.copy(pos);
+  scene.add(boom);
+  const smoke = new THREE.Mesh(new THREE.SphereGeometry(2.5, 8, 8), new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.4 }));
+  smoke.position.copy(pos);
+  scene.add(smoke);
+  explosions.push({ smoke: smoke, boom: boom, t: 0 });
+  shockwaves.push({ pos: pos.clone(), t0: frameNow, dur: 0.25 });
+}
+export function explodeMortarAt(pos, playerDmg, noBroadcast) {
+  damageUgvSplash(pos, 320);
+  if (playerDmg) {
+    const d = camera.position.distanceTo(pos);
+    if (d < 6) damagePlayer(Math.round(playerDmg * (1 - d / 6)), pos);
+  }
+  if (S.pvp && S.pvpBoom && !noBroadcast) S.pvpBoom(pos, playerDmg || 0);
+  mortarBoomVisual(pos);
 }
 
 const grenades = [];

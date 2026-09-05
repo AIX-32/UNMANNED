@@ -16,6 +16,8 @@ import { updateRadar } from './radar.js';
 import { updatePvp } from './pvp.js';
 import { updateCars, isDriving, exitCar } from './car.js';
 import { updateRc, rcActive, rcHud } from './rc.js';
+import { updateMortar, isMortarActive, mortarBlocksMove, mortarHud } from './mortar.js';
+import { updatePhoto } from './photo.js';
 import './signalling.js';
 import './input.js';
 import { showWin, updateHubIntro, updateStoryCutscene } from './menu.js';
@@ -185,6 +187,15 @@ const SUPINE_YAW_RANGE = 2.6;
 const MOVE_FWD = 1.0, MOVE_STRAFE = 0.82, MOVE_BACK = 0.72;
 
 function updatePlayer(dt) {
+  if (mortarBlocksMove()) {
+    // planted — WASD drives the mortar reticle, not the feet
+    vel.set(0,0,0);
+    const footY = playerY - eyeCur;
+    const floorEye = supportHeight(camera.position.x, camera.position.z, footY) + eyeCur;
+    playerY = floorEye; velY = 0; onGround = true; S.airborne = false;
+    camera.position.y = playerY;
+    return false;
+  }
   const forward = getForward();
   const right = getRight();
 
@@ -490,9 +501,11 @@ function updateViewmodel(dt, now, isMoving) {
 
 
 function playTick(dt, now) {
+  updateMortar(dt);
   const wasDriving = isDriving();
   const wasRc = rcActive();
-  if (wasDriving || wasRc) gunScene.visible = false; else gunScene.visible = true;
+  const mort = isMortarActive();
+  if (wasDriving || wasRc || mort) gunScene.visible = false; else gunScene.visible = true;
   const isMoving = (wasDriving || wasRc) ? false : updatePlayer(dt);
   updateTriggers();
   updateSubtitle();
@@ -507,7 +520,7 @@ function playTick(dt, now) {
   updateBoxUse(dt);
   const bu = boxUseInfo();
   if (bu) updateBoxBar(bu.frac, bu.secs); else hideBoxBar();
-  updateAmmoUI(rcHud() || hudInfo());
+  updateAmmoUI(mortarHud() || rcHud() || hudInfo());
   updateHpUI();
   updateCcUI();
   updateRadarUI();
@@ -630,14 +643,16 @@ function animate() {
 
   if (S.dead || (S.paused && !S.pvp) || (!S.pvp && !S.isLocked && S.everLocked)) {
     if (S.paused) {
-      if (!(S.story && updateStoryCutscene(frameDt))) camera.quaternion.setFromEuler(S.euler);
+      if (S.photo) {
+        updatePhoto(frameDt);
+      } else if (!(S.story && updateStoryCutscene(frameDt))) camera.quaternion.setFromEuler(S.euler);
     } else if (S.dead && deathAnimating) {
       updateDeathCam(frameDt);
     } else if (S.dead && kcPhase > 0) {
       updateKillCam(frameDt);
     }
     updateSubtitle();
-    decayCA(frameDt);
+    if (!S.photo) decayCA(frameDt);
     placeUIPanels(); renderFrame(now); return;
   }
 

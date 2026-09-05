@@ -68,6 +68,7 @@ export const S = {
   story: false,
   storyData: null,
   paused: false,
+  photo: false,
 
 
   worldReady: false,

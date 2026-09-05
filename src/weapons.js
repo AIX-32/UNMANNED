@@ -2,7 +2,7 @@
 
 import { scene, camera } from './core.js';
 import { S, GUN_SCALE, STOCK_Z, GUN_ROT, GUN_POS, recoilPivot, inGun } from './state.js';
-import { stenShot, shutShot, reloadSound, stenTail, sniperShot, eagleShot, bashThud, rocketShot } from './audio.js';
+import { stenShot, shutShot, reloadSound, stenTail, sniperShot, eagleShot, bashThud, rocketShot, mortarShot } from './audio.js';
 import { fixGun, groundHeight, pointInCollider } from './world.js';
 import { inUgv, damageUgv, ugvIdent, heardShot as ugvHeardShot, ugvList } from './ugv.js';
 import { inDrone, damageDrone, droneIdent, heardShot as droneHeardShot, droneState } from './drone.js';
@@ -12,6 +12,7 @@ import { cmlFire } from './cml.js';
 import { inRemote, remoteGroup, damageRemote } from './pvp.js';
 import * as idb from '../idb.js';
 import { identTarget, identLanding, setLandingVisible, clampToVisible } from './ident.js';
+import { mortarFire } from './mortar.js';
 
 
 export const flash = new THREE.PointLight(0xffcc66, 0, 12);
@@ -67,6 +68,7 @@ export const WEAPONS = [
   { name: 'AK-47',      RPM: 600, MAG: 30, RELOAD: 2.5,   kick: 3, kickY: 1.5, kickback: 0.18, kickRot: 0.4,  pellets: 1, spread: 0.01,  pump: false, ammo: 30, dmg: 15, pvp: 8, full: null, empty: null, sound: stenShot, price: 450, scale: 1.2, drop: 0.6, bash: 40, desc: 'AK-47. 600 RPM full auto 30 rounds 2.5s reload. 15 dmg 8 pvp.' },
   { name: 'WGS-25',     RPM: 750, MAG: 25, RELOAD: 0.9,   kick: 0.6, kickY: 0.8, kickback: 0.05, kickRot: 0.1,  pellets: 1, spread: 0.004, pump: false, ammo: 25, dmg: 3, pvp: 3, full: null, empty: null, sound: stenShot, price: 350, scale: 1.3, drop: 0.3, bash: 20, desc: 'WGS-25. 750 RPM 25 rounds 0.9s reload. 3 dmg. Light recoil. Hold to gain up to 30 percent speed over 20s.' },
   { name: 'CML-2',      RPM: 60,  MAG: 3,  RELOAD: 0,     kick: 0, kickY: 0, kickback: 0,    kickRot: 0,    pellets: 0, spread: 0,     pump: true,  ammo: 3,  dmg: 150, full: null, empty: null, sound: rocketShot, price: 430, scale: 0.68, drop: 0, bash: 40, missile: true, noReload: true, speedMul: 0.6, view: { pos: [-1.25, -0.55, -1.5], rot: [0.1, 0.35, -0.15] }, desc: 'CML-2. 3 seeking rockets with a big blast. Turn on radar, hold the weapon and aim near a scanned enemy to lock. Fire and it chases that target. No reload and you move slower while carrying it.' },
+  { name: 'Mortar',     RPM: 20,  MAG: 1,  RELOAD: 3.5,   kick: 2, kickY: 1, kickback: 0.2,  kickRot: 0.3,  pellets: 0, spread: 0,     pump: true,  ammo: 1,  dmg: 180, full: null, empty: null, sound: mortarShot, price: 650, scale: 1.0, drop: 0, bash: 40, mortar: true, view: { pos: [-0.9, -0.7, -1.6], rot: [0.05, 0.15, 0] }, desc: 'Mortar. Plants you in place. WASD moves the strike. Fires a high arc shell that explodes where the outline lands. 1 round 3.5s reload.' },
 ];
 
 
@@ -243,6 +245,13 @@ loader.load('assets/models/CML-2.gltf', function(gltf) {
   fixGun(WEAPONS[7].full);
   if (curW === 7) mountGun(WEAPONS[7].full);
 });
+loader.load('assets/models/mortar.gltf', function(gltf) {
+  const g = new THREE.Group();
+  g.add(gltf.scene);
+  WEAPONS[8].full = g;
+  fixGun(WEAPONS[8].full);
+  if (curW === 8) mountGun(WEAPONS[8].full);
+});
 
 let curW = Math.max(0, WEAPONS.findIndex(function(w) { return w.name === getLoadout()[0]; }));
 export function curWeaponName() { return WEAPONS[curW].name; }
@@ -406,6 +415,7 @@ export function weaponSpeedMul() {
 export function startReload() {
   const w = WEAPONS[curW];
   if (reloading || ammo >= w.MAG || w.noReload || usingBox) return;
+  if (w.mortar) { reloading = true; reloadT = 0; if (w.empty) mountGun(w.empty); return; }
   if (S.ads) S.ads = false;
   reloading = true;
   reloadT = 0;
@@ -431,6 +441,7 @@ export const FLASH = {
   'AK-47': { pos: [-0.089, 0.981, -3.51], size: 2.353 },
   'WGS-25': { pos: [-0.71, 0.74, -2.9], size: 2.353 },
   'CML-2': { pos: [-0.98, 1.51, -3.09], size: 3.5 },
+  Mortar: { pos: [0, 0.9, -1.2], size: 4.0 },
 };
 export const FLASH_DEBUG = false;
 
@@ -484,6 +495,7 @@ function barrelDir(out) {
 
 
 export function updateLandingMarker() {
+  if (WEAPONS[curW] && WEAPONS[curW].mortar) return;
   setLandingVisible(S.straf && curW === 2);
 }
 
@@ -526,6 +538,12 @@ function shoot() {
 
     flash.intensity = 8; worldFlash.intensity = 6;
     cmlFire(muzzle, barrelDir(new THREE.Vector3()));
+    return;
+  }
+  if (w.mortar) {
+    flash.intensity = 8; worldFlash.intensity = 6;
+    mortarFire();
+    // w.sound() already played above, no double
     return;
   }
 
