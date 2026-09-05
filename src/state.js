@@ -72,6 +72,7 @@ export const S = {
 
   worldReady: false,
   pendingLoads: 0,
+  carDriving: false,
 };
 
 window.__gaultS = S;

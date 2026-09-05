@@ -49,7 +49,7 @@ body {
     position: fixed;
     top: 0;
     left: 0;
-    right: 280px;
+    right: 0;
     height: 36px;
     display: flex;
     align-items: center;
@@ -58,7 +58,7 @@ body {
     background: #2b2b2b;
     border-bottom: 1px solid #3a3a3a;
     z-index: 6;
-    overflow: hidden;
+    overflow-x: auto;
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
 }
 
@@ -127,26 +127,21 @@ body {
 
 
 #panel {
-    position: fixed;
-    top: 36px;
-    right: 0;
-    width: 280px;
-    height: calc(100vh - 36px);
-    overflow-y: auto;
-    background: #252525;
-    border-left: 1px solid #3a3a3a;
-    padding: 12px 14px;
-    font-size: 11px;
+    display: none;
 }
 
 #panel label {
+    display: none;
+}
+
+#mapFwin label, #pvpFwin label, #groundFwin label, #viewFwin label,
+#wallOpts label, #sectorOpts label, #paintOpts label, #selFwin label {
     color: #9a9a9a;
     font-weight: 400;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.3px;
 }
-
 
 .card {
     background: #2d2d2d;
@@ -350,6 +345,107 @@ button.primary:hover {
 }
 
 
+#loader {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: #151515;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    transition: opacity 0.35s ease;
+}
+
+#loader.hide {
+    opacity: 0;
+    pointer-events: none;
+}
+
+#loader h1 {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 5px;
+    color: #7eb6f0;
+    text-transform: uppercase;
+}
+
+#loader .sub {
+    font-size: 11px;
+    color: #6a6a6a;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+#loader .bar {
+    width: 200px;
+    height: 2px;
+    background: #262626;
+    overflow: hidden;
+}
+
+#loader .bar i {
+    display: block;
+    height: 100%;
+    width: 40%;
+    background: #3a7abd;
+    animation: loadslide 1.1s linear infinite;
+}
+
+@keyframes loadslide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+}
+
+#loader .pct {
+    font-size: 10px;
+    color: #8a8a8a;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+
+#busy {
+    position: fixed;
+    inset: 0;
+    z-index: 110;
+    background: rgba(18, 18, 18, 0.9);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+}
+
+#busy.show {
+    display: flex;
+}
+
+#busy h2 {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 3px;
+    color: #7eb6f0;
+    text-transform: uppercase;
+}
+
+#busy .bar {
+    width: 200px;
+    height: 2px;
+    background: #262626;
+    overflow: hidden;
+}
+
+#busy .bar i {
+    display: block;
+    height: 100%;
+    width: 40%;
+    background: #3a7abd;
+    animation: loadslide 1.1s linear infinite;
+}
+
+
 #status {
     color: #7fbf4f;
     margin-top: 6px;
@@ -512,6 +608,34 @@ kbd {
     color: #ffffff;
 }
 
+.fwin-pin {
+    background: none;
+    border: none;
+    color: #8a8a8a;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.fwin-pin:hover {
+    color: #ffffff;
+}
+
+.fwin-pin.on {
+    color: #f5c542;
+}
+
+.fwin-head {
+    justify-content: flex-start;
+}
+
+.fwin-head .fwin-title {
+    margin-right: auto;
+}
+
 .fwin-body {
     padding: 10px 12px;
     display: flex;
@@ -667,11 +791,7 @@ kbd {
         height: 24px;
     }
     #panel {
-        width: 100%;
-        top: 32px;
-        height: calc(100vh - 32px);
-        border-left: none;
-        border-top: 1px solid #3a3a3a;
+        display: none;
     }
     .card > h3 {
         font-size: 9px;
@@ -726,23 +846,38 @@ kbd {
 </head>
 <body>
 <canvas id="view"></canvas>
+<div id="loader">
+  <h1>UM.STUDIO</h1>
+  <div class="sub">loading world</div>
+  <div class="bar"><i></i></div>
+  <div class="pct" id="loaderMsg">preparing&hellip;</div>
+</div>
+<div id="busy"><h2 id="busyMsg">painting grass&hellip;</h2><div class="bar"><i></i></div></div>
 <div id="hint"></div>
 
 <div id="topbar">
   <span class="title">UM.S</span>
   <div class="group">
-    <button id="toolSelect" class="on">1 Select</button>
-    <button id="toolPlace">2 Place</button>
-    <button id="toolTerrain">3 Terrain</button>
-    <button id="toolRoute">4 Route</button>
-    <button id="toolPaint">5 Paint</button>
-    <button id="toolWall">6 Wall</button>
-    <button id="toolStory">7 Story</button>
-    <button id="toolGreenery">8 Greenery</button>
-    <button id="toolSector">9 Sector</button>
-    <button id="toolGrass">0 Grass</button>
+    <button id="toolSelect" class="on">Select</button>
+    <button id="toolPlace">Place</button>
+    <button id="toolTerrain">Terrain</button>
+    <button id="toolRoute">Route</button>
+    <button id="toolPaint">Paint</button>
+    <button id="toolWall">Wall</button>
+    <button id="toolStory">Story</button>
+    <button id="toolGreenery">Greenery</button>
+    <button id="toolSector">Sector</button>
+    <button id="toolGrass">Grass</button>
   </div>
   <button id="snapBtn">snap OFF (G)</button>
+  <div class="sep"></div>
+  <div class="group" id="wsLaunchers">
+    <button id="wsFile" title="map file settings">File</button>
+    <button id="wsPvp" title="PvP match toggle">Match</button>
+    <button id="wsGround" title="base ground tile">Ground</button>
+    <button id="wsView" title="fog preview / distance">View</button>
+    <button id="wsSel" title="selection info">Sel</button>
+  </div>
   <div class="spacer"></div>
   <div class="group" style="border-right:none">
     <button id="bPixelize">Upload texture</button>
@@ -752,56 +887,145 @@ kbd {
   </div>
 </div>
 
-<div id="panel">
-  <div class="card">
-    <h3>FILE</h3>
-    <div class="card-body">
-      <div class="row"><label>name</label><input type="text" id="mapName" value="map01"></div>
-      <div class="row"><label>size</label><input type="number" id="mapSize" value="200" min="50" max="400" step="10"><span>m</span></div>
-      <div class="row"><label>night map</label>
-        <label style="margin-left:auto"><input type="checkbox" id="nightToggle"> Night</label>
-      </div>
-      <div class="row"><label>midnight</label>
-        <label style="margin-left:auto"><input type="checkbox" id="midnightToggle"> almost blind</label>
-      </div>
-      <div class="grid2">
-        <button id="bNew">New</button>
-        <button id="bPlay">▶ Play</button>
-        <button id="bSaveSlot">Save slot…</button>
-        <button id="bLoadSlot">Load slot…</button>
-      </div>
-      <div id="status"></div>
+<div id="panel"></div>
+
+<div class="fwin" id="mapFwin" style="right:8px;top:44px;width:300px;display:block">
+  <div class="fwin-head"><span class="fwin-title">FILE - map settings</span><button class="fwin-close" id="mapFwinClose">×</button></div>
+  <div class="fwin-body">
+    <div class="row"><label>name</label><input type="text" id="mapName" value="map01"></div>
+    <div class="row"><label>size</label><input type="number" id="mapSize" value="200" min="50" max="1000" step="10"><span>m</span></div>
+    <div class="row"><label>night map</label>
+      <label style="margin-left:auto"><input type="checkbox" id="nightToggle"> Night</label>
+    </div>
+    <div class="row"><label>midnight</label>
+      <label style="margin-left:auto"><input type="checkbox" id="midnightToggle"> almost blind</label>
+    </div>
+    <div class="grid2">
+      <button id="bNew">New</button>
+      <button id="bPlay">▶ Play</button>
+      <button id="bSaveSlot">Save slot…</button>
+      <button id="bLoadSlot">Load slot…</button>
+    </div>
+    <div id="status"></div>
+  </div>
+</div>
+
+<div class="fwin" id="pvpFwin" style="right:8px;top:290px;width:300px;display:none">
+  <div class="fwin-head"><span class="fwin-title">PVP MATCH</span><button class="fwin-close" id="pvpFwinClose">×</button></div>
+  <div class="fwin-body">
+    <div class="row"><label>pvp map</label>
+      <label style="margin-left:auto"><input type="checkbox" id="pvpToggle"> PvP mode</label>
+    </div>
+    <div class="row" style="color:#888">on: place numbered team spawns (1/2) with Place → entity → pvp spawn; the single-player 'player spawn' is hidden. The map then appears in MULTIPLAYER only.</div>
+  </div>
+</div>
+
+<div class="fwin" id="groundFwin" style="right:8px;top:380px;width:300px;display:none">
+  <div class="fwin-head"><span class="fwin-title">GROUND</span><button class="fwin-close" id="groundFwinClose">×</button></div>
+  <div class="fwin-body">
+    <div class="row"><label>base tile</label><select id="groundSel"></select></div>
+    <div class="row"><label>tile m</label><input type="number" id="groundTile" value="4" min="0.5" max="200" step="0.5"><span>m</span></div>
+    <div class="row"><label>true light</label><input type="range" id="groundUnlit" min="0" max="100" step="1" value="0"><span id="groundUnlitV">0%</span></div>
+    <div class="row">
+      <button id="groundUpload">upload tile…</button>
+      <button id="groundReset">default grass</button>
+    </div>
+    <div class="row" style="color:#888">replaces the base grass texture across the whole field (paint overlay still draws on top) - set a dirt/wheat-texture tile for a farm map</div>
+  </div>
+</div>
+<input type="file" id="groundFile" accept="image/*" style="display:none">
+
+<div class="fwin" id="viewFwin" style="right:8px;top:520px;width:300px;display:none">
+  <div class="fwin-head"><span class="fwin-title">VIEW - fog</span><button class="fwin-close" id="viewFwinClose">×</button></div>
+  <div class="fwin-body">
+    <div class="row"><label><input type="checkbox" id="fogToggle"> Hide fog (studio only)</label><span style="color:#888">preview</span></div>
+    <div class="row"><label>fog distance</label><input type="range" id="fogDensity" min="0" max="100" step="1" value="50"><span id="fogDensityV">50%</span></div>
+    <div class="row" style="color:#888">near = thick fog close, far = see far - saved to map, affects game + studio</div>
+  </div>
+</div>
+
+<div class="fwin" id="wallOpts" style="left:360px;top:44px;width:300px;display:none">
+  <div class="fwin-head"><span class="fwin-title">INVISIBLE WALL</span><button class="fwin-close" id="wallOptsClose">×</button></div>
+  <div class="fwin-body">
+    <div class="row" style="color:#888">click to drop vertices - segments connect into one wall. Finishing starts a fresh wall.</div>
+    <div class="grid2">
+      <button id="wFinish">finish wall (Enter / RMB)</button>
+      <button id="wBackspace">drop last (Backspace)</button>
+    </div>
+    <div class="row"><button id="wClearAll" class="danger">clear ALL walls</button></div>
+    <div class="row" style="color:#888">red = committed walls · yellow = in-progress · select tool click a wall then X deletes it</div>
+  </div>
+</div>
+
+<div class="fwin" id="sectorOpts" style="left:360px;top:44px;width:300px;display:none">
+  <div class="fwin-head"><span class="fwin-title">SECTORS</span><button class="fwin-close" id="sectorOptsClose">×</button></div>
+  <div class="fwin-body">
+    <div class="row" style="color:#888">click to drop vertices - the area closes into a fill. UGVs you check below only move inside it, even if they hear you outside.</div>
+    <div class="grid2">
+      <button id="sFinish">finish sector (Enter / RMB)</button>
+      <button id="sBackspace">drop last (Backspace)</button>
+    </div>
+    <div class="row"><button id="sClearAll" class="danger">clear ALL sectors</button></div>
+    <div class="row"><button id="sAutoFind" class="primary">⟳ auto-find UGVs in areas</button></div>
+    <div class="row" style="color:#888">cyan = committed areas · yellow = in-progress · select tool click an area then X deletes it · finishing an area auto-checks UGVs inside it</div>
+    <div class="divider"></div>
+    <div id="sectorList"></div>
+  </div>
+</div>
+
+<div class="fwin" id="paintOpts" style="left:360px;top:44px;width:300px;display:none">
+  <div class="fwin-head"><span class="fwin-title">GROUND PAINT</span><button class="fwin-close" id="paintOptsClose">×</button></div>
+  <div class="fwin-body">
+    <div id="layerList"></div>
+    <div class="row"><button id="bAddLayer">+ add layer (max 3)</button><button id="bClearPaint">clear paint</button></div>
+    <div class="row"><label>radius</label><input type="range" id="pbRadius" min="1" max="20" step="0.5" value="10"><span id="pbRadiusV">10m</span></div>
+    <div class="row"><label>opacity</label><input type="range" id="pbOpacity" min="0.05" max="1" step="0.05" value="0.8"><span id="pbOpacityV">0.80</span></div>
+    <div class="row"><label><input type="checkbox" id="pbErase"> erase to grass</label><label style="margin-left:auto"><input type="checkbox" id="pbMessy" checked> messy blob</label></div>
+  </div>
+</div>
+
+<div class="fwin" id="selFwin" style="left:680px;top:44px;width:300px;display:none">
+  <div class="fwin-head"><span class="fwin-title">SELECTION</span><button class="fwin-close" id="selFwinClose">×</button></div>
+  <div class="fwin-body">
+    <div id="selInfo" style="color:#888">nothing selected</div>
+    <div class="grid2">
+      <button id="bDup">Duplicate (V)</button>
+      <button id="bDel" class="danger">Delete (X)</button>
     </div>
   </div>
+</div>
 
-  <div class="card">
-    <h3>PVP MATCH</h3>
-    <div class="card-body">
-      <div class="row"><label>pvp map</label>
-        <label style="margin-left:auto"><input type="checkbox" id="pvpToggle"> PvP mode</label>
+<div class="fwin" id="terrainBrushFwin" style="left:330px;top:40px;width:280px;display:none">
+  <div class="fwin-head"><span class="fwin-title">TERRAIN BRUSH</span><button class="fwin-close" id="terrainBrushClose">×</button></div>
+  <div class="fwin-body">
+      <div class="grid3">
+        <button id="tbRaise" class="on">raise</button>
+        <button id="tbLower">lower</button>
+        <button id="tbSmooth">smooth</button>
+        <button id="tbFlatten">flatten</button>
+        <button id="tbReset" style="grid-column:span 2">reset to formula</button>
       </div>
-      <div class="row" style="color:#888">on: place numbered team spawns (1/2) with Place → entity → pvp spawn; the single-player 'player spawn' is hidden. The map then appears in MULTIPLAYER only.</div>
-    </div>
+      <div class="row"><label>radius</label><input type="range" id="tbRadius" min="2" max="30" step="1" value="8"><span id="tbRadiusV">8m</span></div>
+      <div class="row"><label>strength</label><input type="range" id="tbStrength" min="0.2" max="17" step="0.2" value="2"><span id="tbStrengthV">2.0</span></div>
+      <div class="row"><label><input type="checkbox" id="tbExtreme"> extreme</label><span style="color:#888">really large maxes</span></div>
   </div>
-
-  <div class="card" id="groundOpts">
-    <h3>GROUND</h3>
-    <div class="card-body">
-      <div class="row"><label>base tile</label><select id="groundSel"></select></div>
-      <div class="row"><label>tile m</label><input type="number" id="groundTile" value="4" min="0.5" max="200" step="0.5"><span>m</span></div>
-      <div class="row"><label>true light</label><input type="range" id="groundUnlit" min="0" max="100" step="1" value="0"><span id="groundUnlitV">0%</span></div>
-      <div class="row">
-        <button id="groundUpload">upload tile…</button>
-        <button id="groundReset">default grass</button>
-      </div>
-      <div class="row" style="color:#888">replaces the base grass texture across the whole field (paint overlay still draws on top) — set a dirt/wheat-texture tile for a farm map</div>
-    </div>
+</div>
+<div class="fwin" id="terrainMountainsFwin" style="left:330px;top:190px;width:280px;display:none">
+  <div class="fwin-head"><span class="fwin-title">MOUNTAINS</span><button class="fwin-close" id="terrainMountainsClose">×</button></div>
+  <div class="fwin-body">
+      <div class="row"><button id="tbMountains" class="primary">⛰ generate mountains</button></div>
+      <div class="row"><label>peak</label><input type="range" id="mtPeak" min="5" max="80" step="1" value="15"><span id="mtPeakV">15m</span></div>
+      <div class="row"><label>stone</label><select id="mtTex"></select></div>
+      <div class="row"><label>above</label><input type="range" id="mtAbove" min="0" max="80" step="0.5" value="6"><span id="mtAboveV">6m</span></div>
+      <div class="row"><button id="tbBakeStone">re-bake stone now</button></div>
+      <div class="row" style="color:#888">ridged mountains ring the map edge · stone texture covers slopes above the height line · re-bake re-stamps after manual brush edits</div>
   </div>
-  <input type="file" id="groundFile" accept="image/*" style="display:none">
+</div>
 
-  <div class="card" id="placeOpts">
-    <h3>PLACE</h3>
-    <div class="card-body">
+
+<div class="fwin" id="placeFwin" style="left:330px;top:40px;width:300px;display:none">
+  <div class="fwin-head"><span class="fwin-title">PLACE</span><button class="fwin-close" id="placeFwinClose">×</button></div>
+  <div class="fwin-body">
       <div class="row"><label>kind</label>
         <select id="placeKind"><option value="prop">prop (gltf)</option><option value="block">block</option><option value="ent">entity</option></select>
       </div>
@@ -834,6 +1058,8 @@ kbd {
           <option value="tank">tank</option>
           <option value="target">target</option>
           <option value="healthbox">health box pickup</option>
+          <option value="radio">radio (collect to win)</option>
+          <option value="car">car (buggy)</option>
           <option value="extract">extract zone</option>
         </select>
       </div>
@@ -846,80 +1072,7 @@ kbd {
       </div>
       <div class="row"><label>scale</label><input type="range" id="placeScale" min="0.2" max="6" step="0.05" value="1"><span id="placeScaleV">1.00</span></div>
       <div class="row"><label>rotY</label><input type="range" id="placeRotY" min="-180" max="180" step="5" value="0"><span id="placeRotYV">0°</span></div>
-    </div>
-  </div>
-
-  <div class="card" id="terrainOpts" style="display:none">
-    <h3>TERRAIN BRUSH</h3>
-    <div class="card-body">
-      <div class="grid3">
-        <button id="tbRaise" class="on">raise</button>
-        <button id="tbLower">lower</button>
-        <button id="tbSmooth">smooth</button>
-        <button id="tbFlatten">flatten</button>
-        <button id="tbReset" style="grid-column:span 2">reset to formula</button>
-      </div>
-      <div class="row"><label>radius</label><input type="range" id="tbRadius" min="2" max="30" step="1" value="8"><span id="tbRadiusV">8m</span></div>
-      <div class="row"><label>strength</label><input type="range" id="tbStrength" min="0.2" max="17" step="0.2" value="2"><span id="tbStrengthV">2.0</span></div>
-      <div class="divider"></div>
-      <div class="row"><button id="tbMountains" class="primary">⛰ generate mountains</button></div>
-      <div class="row"><label>peak</label><input type="range" id="mtPeak" min="5" max="80" step="1" value="15"><span id="mtPeakV">15m</span></div>
-      <div class="row"><label>stone</label><select id="mtTex"></select></div>
-      <div class="row"><label>above</label><input type="range" id="mtAbove" min="0" max="80" step="0.5" value="6"><span id="mtAboveV">6m</span></div>
-      <div class="row"><button id="tbBakeStone">re-bake stone now</button></div>
-      <div class="row" style="color:#888">ridged mountains ring the map edge · stone texture covers slopes above the height line · re-bake re-stamps after manual brush edits</div>
-    </div>
-  </div>
-
-  <div class="card" id="wallOpts" style="display:none">
-    <h3>INVISIBLE WALL</h3>
-    <div class="card-body">
-      <div class="row" style="color:#888">click to drop vertices — segments connect into one wall. Finishing starts a fresh wall.</div>
-      <div class="grid2">
-        <button id="wFinish">finish wall (Enter / RMB)</button>
-        <button id="wBackspace">drop last (Backspace)</button>
-      </div>
-      <div class="row"><button id="wClearAll" class="danger">clear ALL walls</button></div>
-      <div class="row" style="color:#888">red = committed walls · yellow = in-progress · select tool click a wall then X deletes it</div>
-    </div>
-  </div>
-
-  <div class="card" id="sectorOpts" style="display:none">
-    <h3>SECTORS</h3>
-    <div class="card-body">
-      <div class="row" style="color:#888">click to drop vertices — the area closes into a fill. UGVs you check below only move inside it, even if they hear you outside.</div>
-      <div class="grid2">
-        <button id="sFinish">finish sector (Enter / RMB)</button>
-        <button id="sBackspace">drop last (Backspace)</button>
-      </div>
-      <div class="row"><button id="sClearAll" class="danger">clear ALL sectors</button></div>
-      <div class="row"><button id="sAutoFind" class="primary">⟳ auto-find UGVs in areas</button></div>
-      <div class="row" style="color:#888">cyan = committed areas · yellow = in-progress · select tool click an area then X deletes it · finishing an area auto-checks UGVs inside it</div>
-      <div class="divider"></div>
-      <div id="sectorList"></div>
-    </div>
-  </div>
-
-  <div class="card" id="paintOpts" style="display:none">
-    <h3>GROUND PAINT</h3>
-    <div class="card-body">
-      <div id="layerList"></div>
-      <div class="row"><button id="bAddLayer">+ add layer (max 3)</button><button id="bClearPaint">clear paint</button></div>
-      <div class="row"><label>radius</label><input type="range" id="pbRadius" min="1" max="20" step="0.5" value="10"><span id="pbRadiusV">10m</span></div>
-      <div class="row"><label>opacity</label><input type="range" id="pbOpacity" min="0.05" max="1" step="0.05" value="0.8"><span id="pbOpacityV">0.80</span></div>
-      <div class="row"><label><input type="checkbox" id="pbErase"> erase to grass</label><label style="margin-left:auto"><input type="checkbox" id="pbMessy" checked> messy blob</label></div>
-    </div>
-  </div>
-
-  <div class="card" id="selectionCard">
-    <h3>SELECTION</h3>
-    <div class="card-body">
-      <div id="selInfo" style="color:#888">nothing selected</div>
-      <div class="grid2">
-        <button id="bDup">Duplicate (V)</button>
-        <button id="bDel" class="danger">Delete (X)</button>
-      </div>
-    </div>
+      <div class="row" style="color:#888">aim + click = stamp (keeps going) · rotY spins the ghost · G snap</div>
   </div>
 </div>
 
@@ -934,7 +1087,7 @@ kbd {
       <div class="row"><label>size</label><input type="range" id="pixSize" min="16" max="256" step="16" value="128"><span id="pixSizeV">128</span></div>
       <div class="row"><label>levels</label><input type="range" id="pixLevels" min="2" max="16" step="1" value="6"><span id="pixLevelsV">6</span></div>
       <div class="row"><label style="flex:1"><input type="checkbox" id="pixDither" checked> Bayer dithering</label></div>
-      <div class="row"><label style="flex:1"><input type="checkbox" id="pixNoCrunch" checked> keep original — paint needs the real texture (uncheck to pixelize for blocks)</label></div>
+      <div class="row"><label style="flex:1"><input type="checkbox" id="pixNoCrunch" checked> keep original - paint needs the real texture (uncheck to pixelize for blocks)</label></div>
       <div class="row"><button id="pixGo">Crunch</button><button id="pixUse" disabled>Use as texture</button><button id="pixDl" disabled>PNG</button></div>
       <div class="row"><canvas id="pixprev" width="64" height="64"></canvas></div>
     </div>
@@ -959,18 +1112,18 @@ kbd {
     <div class="modal-head"><h3>STUDIO HELP</h3><button class="modal-close" data-close>×</button></div>
     <div class="modal-body help">
       <ul>
-        <li><b>Camera</b> — RMB drag look around · WASD fly toward the view (R/F up/down) · wheel zoom/dolly · Shift = fast</li>
-        <li><b>1 Select</b> — click pick · drag move · arrows slide · PgUp/Dn lift · [ ] rotate · -/+ scale · V dup · X del</li>
-        <li><b>2 Place</b> — pick prop/block/entity, aim + click to stamp (keeps going) · rotY slider spins the ghost before you stamp · G toggle snap</li>
-        <li><b>3 Terrain</b> — hold click to sculpt · raise/lower/smooth/flatten in panel</li>
-        <li><b>4 Route</b> — click to add UGV waypoints · X on a dot deletes it</li>
-        <li><b>5 Paint</b> — hold click paints the active ground layer · Alt erases back to grass · add layers in panel</li>
-        <li><b>6 Wall</b> — click = vertices (auto-connect) · Enter/RMB finishes the wall · Backspace drops last vertex · walls are invisible blockers in-game (block player + UGVs)</li>
-        <li><b>7 Story</b> — floating windows: intro sections (typed on spawn), cutscene camera path (add points where you fly, ▶ preview), text zones (walk into a ring → subtitle)</li>
-        <li><b>8 Greenery</b> — floating window: paint forests. pick trees/bushes/both, how many per click, brush radius, tree & bush size ranges. Left-click stamps a spaced grouping so canopies don't overlap</li>
-        <li><b>0 Grass</b> — floating window: upload a transparent sprite (grass tuft / wheat stalk), hold LMB + draw to paint billboard grass. Each painted point spawns 2-6 crossed billboard pairs, randomly rotated — all blades render as one merged mesh, so big fields stay fast</li>
-        <li><b>Ground</b> — pick or upload a base-ground tile texture + tile size for the map (default is grass); the paint tool still draws on top of it</li>
-        <li><b>Pixelizer</b> — image → downscale + posterize + Bayer dither → usable block texture</li>
+        <li><b>Camera</b> - RMB drag look around · WASD fly toward the view (R/F up/down) · wheel zoom/dolly · Shift = fast</li>
+        <li><b>1 Select</b> - click pick · drag move · arrows slide · PgUp/Dn lift · [ ] rotate · -/+ scale · V dup · X del</li>
+        <li><b>2 Place</b> - pick prop/block/entity, aim + click to stamp (keeps going) · rotY slider spins the ghost before you stamp · G toggle snap</li>
+        <li><b>3 Terrain</b> - hold click to sculpt · raise/lower/smooth/flatten in panel</li>
+        <li><b>4 Route</b> - click to add UGV waypoints · X on a dot deletes it</li>
+        <li><b>5 Paint</b> - hold click paints the active ground layer · Alt erases back to grass · add layers in panel</li>
+        <li><b>6 Wall</b> - click = vertices (auto-connect) · Enter/RMB finishes the wall · Backspace drops last vertex · walls are invisible blockers in-game (block player + UGVs)</li>
+        <li><b>7 Story</b> - floating windows: intro sections (typed on spawn), cutscene camera path (add points where you fly, ▶ preview), text zones (walk into a ring → subtitle)</li>
+        <li><b>8 Greenery</b> - floating window: paint forests. pick trees/bushes/both, how many per click, brush radius, tree & bush size ranges. Left-click stamps a spaced grouping so canopies don't overlap</li>
+        <li><b>0 Grass</b> - floating window: upload a transparent sprite (grass tuft / wheat stalk), hold LMB + draw to paint billboard grass. Each painted point spawns 2-6 crossed billboard pairs, randomly rotated - all blades render as one merged mesh, so big fields stay fast</li>
+        <li><b>Ground</b> - pick or upload a base-ground tile texture + tile size for the map (default is grass); the paint tool still draws on top of it</li>
+        <li><b>Pixelizer</b> - image → downscale + posterize + Bayer dither → usable block texture</li>
         <li><b>Ctrl+Z</b> undo · autosave · ▶ Play opens the map in-game</li>
       </ul>
     </div>

@@ -5,7 +5,7 @@
 
 import { S } from './state.js';
 import { scene, $, status, camera, orbit, euler, setStoryRebuild, markerSprite,
-         sampleHeight, groundHit, dump, saveAutosave } from './core.js';
+         sampleHeight, groundHit, dump, saveAutosave, addPinButton, isPinned } from './core.js';
 
 export const storyGroup = new THREE.Group();
 scene.add(storyGroup);
@@ -52,9 +52,11 @@ function ensureStory() { if (!S.map.story) S.map.story = { cam: [], sections: []
 
 
 const wSections = fwin('INTRO STORY SECTIONS', 330, 40);
+wSections.win.id = 'storySectionsFwin';
+addPinButton(wSections.win);
 const secTA = document.createElement('textarea');
 secTA.rows = 7;
-secTA.placeholder = 'one section per line — each types out on the intro board';
+secTA.placeholder = 'one section per line - each types out on the intro board';
 secTA.addEventListener('input', function() {
   ensureStory();
   S.map.story.sections = secTA.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
@@ -65,6 +67,8 @@ wSections.body.appendChild(shint('an intro plays on spawn when sections (or a 2+
 
 
 const wCam = fwin('INTRO CUTSCENE CAMERA', 330, 230);
+wCam.win.id = 'storyCamFwin';
+addPinButton(wCam.win);
 const camAdd = document.createElement('button');
 camAdd.textContent = '＋ add point at camera';
 const camPrev = document.createElement('button');
@@ -160,6 +164,8 @@ export function updatePreview(dt) {
 
 
 const wTrig = fwin('STORY TEXT ZONES', 700, 40);
+wTrig.win.id = 'storyTrigFwin';
+addPinButton(wTrig.win);
 const trigAdd = document.createElement('button');
 trigAdd.textContent = '＋ add zone at cursor';
 const trigList = document.createElement('div');
@@ -235,7 +241,9 @@ export function rebuildStoryViz() {
 
 
 export function setStoryMode(on) {
-  wSections.win.style.display = wCam.win.style.display = wTrig.win.style.display = on ? 'block' : 'none';
+  wSections.win.style.display = (on || isPinned('storySectionsFwin')) ? 'block' : 'none';
+  wCam.win.style.display = (on || isPinned('storyCamFwin')) ? 'block' : 'none';
+  wTrig.win.style.display = (on || isPinned('storyTrigFwin')) ? 'block' : 'none';
   if (on) {
     ensureStory();
     secTA.value = (S.map.story.sections || []).join('\n');

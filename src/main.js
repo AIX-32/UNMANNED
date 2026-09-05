@@ -4,7 +4,7 @@ import { scene, camera, gunScene, postMat, renderFrame } from './core.js';
 import { S, GUN_POS, GUN_ROT, ADS_POS, ADS_ROT, recoilPivot, inGun, takeLook } from './state.js';
 import { updateFiring, hudInfo, flashSync, FLASH, FLASH_DEBUG, curWeaponName, getGunModel, flash, getMuzzleFlash, reloadK, switchK, getWorldFlash, updateLandingMarker, wgsSpeedBoost, weaponSpeedMul, bashRot, bashThrust, viewPos, viewRot, updateBoxUse, cancelBox, boxDip, boxUseInfo } from './weapons.js';
 import { updateAmmoUI, updateHpUI, updateCcUI, updateRadarUI, updateGrenadeUI, updatePvpHud, updateHudVisibility, setHpFlash, showDeathScreen, hideDeathBoard, flashDbg, placeUIPanels, showSubtitle, updateSubtitle, placeBossHud, updateBoxBar, hideBoxBar, requestGameLock } from './ui.js';
-import { resolveCollisions, updateTurret, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract } from './world.js';
+import { resolveCollisions, updateTurret, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull } from './world.js';
 import { updateUgv, allUgvsDead, ugvCount, lowerCert as ugvLowerCert } from './ugv.js';
 import { updateTurrets, allTurretsDead, turretCount, lowerCert as turretLowerCert } from './turret.js';
 import { updateDrone, lowerCert as droneLowerCert } from './drone.js';
@@ -14,6 +14,7 @@ import { updateCml } from './cml.js';
 import { updateIdent } from './ident.js';
 import { updateRadar } from './radar.js';
 import { updatePvp } from './pvp.js';
+import { updateCars, isDriving, exitCar } from './car.js';
 import './signalling.js';
 import './input.js';
 import { showWin, updateHubIntro, updateStoryCutscene } from './menu.js';
@@ -488,12 +489,17 @@ function updateViewmodel(dt, now, isMoving) {
 
 
 function playTick(dt, now) {
-  const isMoving = updatePlayer(dt);
+  const wasDriving = isDriving();
+  if (wasDriving) gunScene.visible = false; else gunScene.visible = true;
+  const isMoving = wasDriving ? false : updatePlayer(dt);
   updateTriggers();
   updateSubtitle();
 
   const hboxGot = updateHealthBoxes(dt);
   if (hboxGot) showSubtitle('HEALTH BOX +' + hboxGot);
+
+  const radioGot = updateRadios(dt);
+  if (radioGot) showSubtitle('RADIO COLLECTED ' + (radiosPlaced() - radiosLeft()) + '/' + radiosPlaced());
 
   updateFiring(dt, now);
   updateBoxUse(dt);
@@ -528,10 +534,16 @@ function playTick(dt, now) {
 
   updateTurret(dt);
   updateUgv(dt, now);
-  // ponytail: extract maps win on reaching the zone, others on clearing foes
+  // ponytail: extract maps win on reaching the zone, others on clearing foes;
+  // radio maps win by collecting every radio (foes no longer need clearing)
   const foes = ugvCount() + turretCount() + bossCount();
   const cleared = foes > 0 && allUgvsDead() && allTurretsDead() && allBossesDead();
-  if (!S.dead && !S.won && ((MAP_SPAWNS.extract && atExtract()) || (!MAP_SPAWNS.extract && cleared))) showWin();
+  const hasRadios = radiosPlaced();
+  const allRadios = hasRadios && radiosLeft() === 0;
+  let won = hasRadios
+    ? allRadios && (!MAP_SPAWNS.extract || atExtract())
+    : (MAP_SPAWNS.extract && atExtract()) || (!MAP_SPAWNS.extract && cleared);
+  if (!S.dead && !S.won && won) showWin();
   else if (!S.dead && !S.won && cleared && MAP_SPAWNS.extract && now - extractHintAt > 8) { extractHintAt = now; showSubtitle('GET TO EXTRACTION'); }
   updateTurrets(dt, now);
   updateDrone(dt, now);
@@ -539,6 +551,7 @@ function playTick(dt, now) {
   updateGrenades(dt);
   updateCml(dt, now, curWeaponName() === 'CML-2');
   if (S.pvp) updatePvp(dt, now);
+  updateCars(dt, now);
 
 
   S.caKick *= Math.pow(0.02, dt);
@@ -595,7 +608,9 @@ function animate() {
       deathStartY = camera.position.y;
     }
   }
+  if (isDriving() && S.dead) exitCar();
   if (S.respawnRequested) {
+    if (isDriving()) exitCar();
 
     const sp = S.pvp ? (function() {
       const pv = (MAP_SPAWNS.pvp || []).find(function(s) { return s.team === S.pvpTeam; }) || (MAP_SPAWNS.pvp || [])[0];
@@ -625,6 +640,7 @@ function animate() {
 
   const n = consumeTicks(frameDt);
   for (let i = 0; i < n; i++) playTick(TICK_DT, now);
+  updateGrassCull();
   renderFrame(now);
 }
 

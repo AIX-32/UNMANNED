@@ -2,10 +2,22 @@
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1512);
 scene.fog = new THREE.FogExp2(0x1a1512, 0.012);
+function sliderToDensity(v){ return 0.020 - (Math.max(0,Math.min(100,parseFloat(v)||0))*0.00018); }
+let fogSlider = 50;
+export function setFogSlider(v){ fogSlider = Math.max(0,Math.min(100,parseFloat(v)||0)); try{ localStorage.setItem('gault_fogSlider', String(fogSlider)); }catch(e){} if (scene.fog) scene.fog.density = sliderToDensity(fogSlider); }
+export function getFogSlider(){ return fogSlider; }
+try{ const f = localStorage.getItem('gault_fogSlider'); if(f!=null) fogSlider=Math.max(0,Math.min(100,parseFloat(f)||50)); if(scene.fog) scene.fog.density=sliderToDensity(fogSlider); }catch(e){}
 
-export const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
+export const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 360);
 camera.position.set(0, 2, 5);
 camera.lookAt(0, 1, 0);
+// ponytail: far grows with map size so the whole field stays visible
+export function setRenderSize(size){
+  const s = Math.max(50, Math.min(1000, size || 200));
+  const need = Math.ceil(s * 1.5); // diagonal ~1.41*s, give a little headroom
+  const far = Math.max(360, need); // keep at least default for 200m maps
+  if (camera.far !== far){ camera.far = far; camera.updateProjectionMatrix(); }
+}
 
 export const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);

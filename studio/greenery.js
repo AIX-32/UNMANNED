@@ -3,8 +3,8 @@
 
 
 
-import { S } from './state.js';
-import { brushRing, buildPropMesh, groundHit, dump, saveAutosave, pushUndo, status } from './core.js';
+import { S, HALF } from './state.js';
+import { brushRing, buildPropMesh, groundHit, dump, saveAutosave, pushUndo, status, addPinButton, isPinned } from './core.js';
 
 
 
@@ -28,8 +28,9 @@ function rand(min, max) { return min + Math.random() * (max - min); }
 function itemRadius(kind, scale) { return (kind === 'tree' ? 1.5 : 0.8) * scale; }
 function groupList(g) {
   const list = [];
-  if (g.mode === 'tree' || g.mode === 'both') for (let i = 0; i < g.treeCount; i++) list.push('tree');
-  if (g.mode === 'bush' || g.mode === 'both') for (let i = 0; i < g.bushCount; i++) list.push('bush');
+  const tc = Math.max(0, Math.floor(+g.treeCount) || 0), bc = Math.max(0, Math.floor(+g.bushCount) || 0);
+  if (g.mode === 'tree' || g.mode === 'both') for (let i = 0; i < tc; i++) list.push('tree');
+  if (g.mode === 'bush' || g.mode === 'both') for (let i = 0; i < bc; i++) list.push('bush');
   return list;
 }
 
@@ -42,12 +43,12 @@ export function scatterGroup(g, existing, cx, cz) {
     const lo = kind === 'tree' ? g.treeMin : g.bushMin;
     const hi = kind === 'tree' ? g.treeMax : g.bushMax;
     let scale = lo, x = 0, z = 0, ok = false;
-    for (let tries = 0; tries < 30 && !ok; tries++) {
+    for (let tries = 0; tries < 50 && !ok; tries++) {
       const a = Math.random() * Math.PI * 2;
       const r = Math.sqrt(Math.random()) * g.radius;
       x = cx + Math.cos(a) * r;
       z = cz + Math.sin(a) * r;
-      if (Math.abs(x) > 99 || Math.abs(z) > 99) continue;
+      if (Math.abs(x) > HALF - 0.5 || Math.abs(z) > HALF - 0.5) continue;
       scale = rand(lo, hi);
       const rad = itemRadius(kind, scale);
       ok = true;
@@ -96,6 +97,8 @@ function fwin(title, x, y) {
   return { win: win, body: body, show: function() { win.style.display = 'block'; }, hide: function() { win.style.display = 'none'; } };
 }
 const w = fwin('GREENERY BRUSH', 330, 40);
+w.win.id = 'greeneryFwin';
+addPinButton(w.win);
 
 function row() { const d = document.createElement('div'); d.className = 'row'; w.body.appendChild(d); return d; }
 function label(txt) { const s = document.createElement('span'); s.textContent = txt; s.style.color = '#999'; return s; }
@@ -123,6 +126,7 @@ function shint(txt) { const d = document.createElement('div'); d.className = 'sh
   [['tree', 'trees'], ['bush', 'bushes'], ['both', 'trees + bushes']].forEach(function(o) {
     const e = document.createElement('option'); e.value = o[0]; e.textContent = o[1]; sel.appendChild(e);
   });
+  sel.value = G.mode;
   sel.addEventListener('change', function() { G.mode = sel.value; });
   r.appendChild(sel);
 }
@@ -137,11 +141,13 @@ function shint(txt) { const d = document.createElement('div'); d.className = 'sh
   const r = row();
   r.appendChild(label('trees / stamp'));
   const n = num(0, 40, G.treeCount);
-  n.addEventListener('input', function() { G.treeCount = Math.max(0, +n.value || 0); });
+  n.step = '1';
+  n.addEventListener('input', function() { G.treeCount = Math.max(0, Math.floor(+n.value) || 0); });
   r.appendChild(n);
   r.appendChild(label('bushes / stamp'));
   const nb = num(0, 40, G.bushCount);
-  nb.addEventListener('input', function() { G.bushCount = Math.max(0, +nb.value || 0); });
+  nb.step = '1';
+  nb.addEventListener('input', function() { G.bushCount = Math.max(0, Math.floor(+nb.value) || 0); });
   r.appendChild(nb);
 }
 {
@@ -171,8 +177,10 @@ shint('left-click stamps a random grouping in the brush circle; spacing keeps ca
 
 
 export function greeneryStamp(cx, cz) {
+  const need = groupList(G).length;
+  if (!need) return status('set a tree/bush count first (kind='+G.mode+': trees='+G.treeCount+' bushes='+G.bushCount+')');
   const placed = scatterGroup(G, S.map.props, cx, cz);
-  if (!placed.length) return status('set a tree/bush count first');
+  if (!placed.length) return status('no room — try larger radius or smaller spacing ('+need+' wanted)');
   pushUndo();
   placed.forEach(function(p) { S.map.props.push(p); buildPropMesh(p); });
   dump();
@@ -192,6 +200,6 @@ export function updateGreenery() {
 }
 
 export function setGreeneryMode(on) {
-  w.win.style.display = on ? 'block' : 'none';
+  w.win.style.display = (on || isPinned('greeneryFwin')) ? 'block' : 'none';
   if (!on) brushRing.visible = false;
 }

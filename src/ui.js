@@ -706,6 +706,7 @@ document.addEventListener('click', function(e) {
 
 
 export function menuActive() { return menuMesh.visible; }
+export function inSettingsView() { return menuMesh.visible && menuView === 1; }
 
 
 export function setPauseMenuVisible(v) { v ? boardShow(menuMesh) : boardHide(menuMesh); }
@@ -786,6 +787,7 @@ function hudNdcToOffset(ndcX, ndcY) {
 function hudPlace() {
   for (const k in hudLayout) placeHud(hudPanels[k], hudLayout[k][0], hudLayout[k][1]);
 }
+export function syncHudPositions() { hudPlace(); if (bossHud.mesh.visible) placeBossHud(); if (subMesh.visible) updateSubtitle(); }
 function hudEditTick() { hudPlace(); }
 function hudJson() {
   const o = {};

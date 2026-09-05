@@ -13,6 +13,7 @@ import { droneState } from './drone.js';
 import { turretList } from './turret.js';
 import { bossList } from './boss.js';
 import { sonarPlay, sonarStop, sonarPos } from './audio.js';
+import { radiosScan } from './world.js';
 import * as idb from '../idb.js';
 
 const CONE_HALF = 0.9;
@@ -134,6 +135,7 @@ export function updateRadar(dt, now) {
     bossList().forEach(add);
     const d = droneState();
     if (d) add(d);
+    radiosScan().forEach(add);
   }
 
 

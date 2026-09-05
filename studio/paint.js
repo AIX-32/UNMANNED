@@ -116,7 +116,7 @@ export function renderLayers() {
   const el = $('layerList');
   el.innerHTML = '';
   if (!S.map.splat.layers.length) {
-    el.innerHTML = '<div class="row" style="color:#888">no layers — add one, pick a texture, paint</div>';
+    el.innerHTML = '<div class="row" style="color:#888">no layers - add one, pick a texture, paint</div>';
     return;
   }
   S.map.splat.layers.forEach(function(tex, i) {
@@ -134,7 +134,7 @@ export function renderLayers() {
     sel.value = tex;
     sel.style.flex = '1';
     const rep = document.createElement('input');
-    rep.type = 'number'; rep.value = (S.map.splat.tileM ? (S.map.splat.tileM[i] || 2) : 2); rep.min = 0.5; rep.max = 200; rep.step = 0.5; rep.title = 'tile size (m) — bigger = texture covers more ground';
+    rep.type = 'number'; rep.value = (S.map.splat.tileM ? (S.map.splat.tileM[i] || 2) : 2); rep.min = 0.5; rep.max = 200; rep.step = 0.5; rep.title = 'tile size (m) - bigger = texture covers more ground';
     rep.style.width = '58px';
     rep.onchange = function() {
       S.map.splat.tileM = S.map.splat.tileM || [];
@@ -212,7 +212,7 @@ export function clearGroundPaint() {
   markGroundDirty();
   if (S.map) S.map.groundTex = null;
   dump(); saveAutosave();
-  status('paint cleared — ground is pure grass again');
+  status('paint cleared - ground is pure grass again');
 }
 export function refreshGroundMaterial() {
   if (!groundMesh) return;
@@ -233,7 +233,7 @@ document.getElementById('pixFile').addEventListener('change', function(e) {
     crunchImage(img);
   };
   img.onerror = function() {
-    status('couldn\'t decode "' + f.name + '" — the browser can\'t read this image format');
+    status('couldn\'t decode "' + f.name + '" - the browser can\'t read this image format');
     pixResult = null;
     document.getElementById('pixUse').disabled = true;
     document.getElementById('pixDl').disabled = true;
@@ -256,7 +256,7 @@ function crunchImage(img) {
     pixResult = pixCanvas.toDataURL('image/png');
     document.getElementById('pixUse').disabled = false;
     document.getElementById('pixDl').disabled = false;
-    status('kept "' + pixName + '"' + (scale < 1 ? ' (downscaled to ' + pixCanvas.width + 'px)' : '') + ' — Use as texture adds it to the texture list');
+    status('kept "' + pixName + '"' + (scale < 1 ? ' (downscaled to ' + pixCanvas.width + 'px)' : '') + ' - Use as texture adds it to the texture list');
     return;
   }
   const size = parseInt(document.getElementById('pixSize').value, 10);
@@ -288,13 +288,13 @@ function crunchImage(img) {
   pixResult = small.toDataURL('image/png');
   document.getElementById('pixUse').disabled = false;
   document.getElementById('pixDl').disabled = false;
-  status('pixelized "' + pixName + '" — Use as texture adds it to the texture list');
+  status('pixelized "' + pixName + '" - Use as texture adds it to the texture list');
 }
 document.getElementById('pixUse').addEventListener('click', function() {
   if (!pixResult) return;
   addCustomTexture('pixel:' + pixName, pixResult);
   document.getElementById('texSel').value = pixResult;
-  status('texture added — selected on new blocks');
+  status('texture added - selected on new blocks');
 });
 document.getElementById('pixDl').addEventListener('click', function() {
   if (!pixResult) return;

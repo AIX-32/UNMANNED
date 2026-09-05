@@ -96,9 +96,11 @@ const ugvFlashLight = new THREE.PointLight(0xffaa44, 0, 18);
 scene.add(ugvFlashLight);
 
 function ugvShoot(u) {
+  const pp = perceivedPos(u);
+  const tgt = new THREE.Vector3(pp[0], camera.position.y, pp[1]);
   const origin = new THREE.Vector3(u.x, groundHeight(u.x, u.z) + u.top * 0.7, u.z);
-  const dir = new THREE.Vector3().subVectors(camera.position, origin).normalize();
-  const dist = origin.distanceTo(camera.position);
+  const dir = new THREE.Vector3().subVectors(tgt, origin).normalize();
+  const dist = origin.distanceTo(tgt);
   // ponytail: flat miss chance, ~0 point-blank, retune weights if too easy/hard
   const moving = S.keys['KeyW'] || S.keys['KeyA'] || S.keys['KeyS'] || S.keys['KeyD'];
   const missP = THREE.MathUtils.clamp(0.15 + 0.55 * (dist / FIRE_RANGE) + (moving ? 0.15 : 0), 0, 0.85)
@@ -293,10 +295,12 @@ export function damageUgv(obj, dmg) {
 
 
 export function heardShot() {
-  const px = camera.position.x, pz = camera.position.z;
   const near = [];
   ugvs.forEach(function(u) {
     if (u.dead) return;
+    // ponytail: car in sector spoofs perception — use ghost pos for distance
+    const pp = perceivedPos(u);
+    const px = pp[0], pz = pp[1];
     const d = Math.hypot(u.x - px, u.z - pz);
     if (d < RUSH_RANGE) {
 
@@ -311,7 +315,8 @@ export function heardShot() {
   near.slice(0, RUSH_MAX).forEach(function(n) {
     const u = n[1];
     u.invT = INVEST_TIME;
-
+    const pp = perceivedPos(u);
+    const px = pp[0], pz = pp[1];
     if (u.sectorMask) { const c = clampToPoly(px, pz, sectorPolys[u.sector]); u.invX = c[0]; u.invZ = c[1]; }
     else { u.invX = px; u.invZ = pz; }
     u.path = null; u.pi = 0; u.pauseT = 0;
@@ -436,6 +441,29 @@ function clampToPoly(x, z, poly) {
     if (pointInPoly(cx, cz, poly)) return [cx, cz];
   }
   return q;
+}
+// ponytail: car driving inside a UGV's sector feeds UGVs a ghost position a bit away
+function drivingInSector(u) {
+  if (!S.carDriving) return false;
+  if (u.sector == null) return false;
+  const poly = sectorPolys[u.sector];
+  if (!poly) return false;
+  return pointInPoly(camera.position.x, camera.position.z, poly);
+}
+function perceivedPos(u) {
+  const rx = camera.position.x, rz = camera.position.z;
+  if (!drivingInSector(u)) return [rx, rz];
+  const now = performance.now() / 1000;
+  // refresh ghost every ~1.8s or if player moved >8m — avoids per-frame thrash
+  if (u._spoofT == null || now - u._spoofT > 1.8 || Math.hypot(rx - (u._spoofRX || rx), rz - (u._spoofRZ || rz)) > 8) {
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 10 + Math.random() * 12; // 10-22m
+    let sx = rx + Math.cos(ang) * dist;
+    let sz = rz + Math.sin(ang) * dist;
+    if (u.sectorMask) { const c = clampToPoly(sx, sz, sectorPolys[u.sector]); sx = c[0]; sz = c[1]; }
+    u._spoofX = sx; u._spoofZ = sz; u._spoofT = now; u._spoofRX = rx; u._spoofRZ = rz;
+  }
+  return [u._spoofX, u._spoofZ];
 }
 export function buildUgvGrid() {
   sectorPolys.length = 0;
@@ -635,7 +663,8 @@ function segHitsCyl(ox, oy, oz, px, py, pz, c) {
 export function playerLOS(u) {
   const ox = u.x, oz = u.z;
   const oy = groundHeight(ox, oz) + (u.muzzleH != null ? u.muzzleH : u.top * 0.7);
-  const px = camera.position.x, py = camera.position.y, pz = camera.position.z;
+  const pp = perceivedPos(u);
+  const px = pp[0], py = camera.position.y, pz = pp[1];
 
   const d = Math.hypot(px - ox, pz - oz), steps = Math.ceil(d / 0.8);
   for (let i = 1; i < steps; i++) {
@@ -671,7 +700,8 @@ function updateOne(u, dt, now) {
   if (!u.model) return;
   if (u.dead) return;
 
-  const px = camera.position.x, pz = camera.position.z;
+  const pp0 = perceivedPos(u);
+  const px = pp0[0], pz = pp0[1];
   const dx = px - u.x, dz = pz - u.z;
   const dist = Math.hypot(dx, dz);
   const toP = Math.atan2(-dx, -dz);
@@ -692,7 +722,7 @@ function updateOne(u, dt, now) {
       const sprint = S.keys['ShiftLeft'] || S.keys['ShiftRight'];
       if (moving) rate += sprint ? 14 : 6;
       if (S.prone) rate *= 0.5;
-      if (S.prone && inGrass(px, pz)) rate *= 0.1;
+      if (S.prone && inGrass(camera.position.x, camera.position.z)) rate *= 0.1;
     }
     u.cert += (rate - CERT_DECAY * (rate > 0 ? 0 : 1)) * dt;
     u.cert = THREE.MathUtils.clamp(u.cert, 0, 100);

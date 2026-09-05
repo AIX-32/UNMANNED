@@ -4,7 +4,7 @@ import { S, HALF, freshMap } from './state.js';
 import * as idb from '../idb.js';
 import { $, status, canvas, renderer, scene, camera, orbit, updateCamera,
          rebuildAll, dump, refreshOutlines, brushRing, propGroup, blockGroup, markGroup,
-         raycaster, mouseNDC, DEFAULT_SCALE,
+         raycaster, mouseNDC, DEFAULT_SCALE, whenAsyncIdle,
          groundDirty, groundTexCanvas, groundTexCtx, saveAutosave } from './core.js';
 import { onMouseDown, makeGhost, clearGhost, aimHit, snapVal, readBlockDef,
          applyBrush, endBrushStroke, finishWall, finishSector } from './tools.js';
@@ -12,7 +12,7 @@ import { fillModelSelect, handleKey, initUI, updateHint, renderSectorList } from
 import { fillTextureSelect, loadCustomTextures, setPaintDown, applyPaint, endPaintStroke } from './paint.js';
 import { updatePreview } from './story.js';
 import { updateGreenery } from './greenery.js';
-import { setGrassDown, applyGrass, endGrassStroke } from './grass.js';
+import { setGrassDown, applyGrass, endGrassStroke, finishGrassRegion, grassRegionActive } from './grass.js';
 
 
 
@@ -33,6 +33,7 @@ addEventListener('mouseup', function() {
   orbit.drag = false;
   if (orbit.btn === 2 && !orbit.moved && S.tool === 'wall') finishWall();
   if (orbit.btn === 2 && !orbit.moved && S.tool === 'sector') { finishSector(); if (document.getElementById('sectorList')) renderSectorList(); }
+  if (orbit.btn === 2 && !orbit.moved && S.tool === 'grass' && grassRegionActive()) finishGrassRegion();
   orbit.btn = 0;
   finishDrag();
 });
@@ -40,9 +41,7 @@ addEventListener('wheel', function(e) {
 
   const d = camera.getWorldDirection(new THREE.Vector3());
   orbit.pos.addScaledVector(d, (e.deltaY > 0 ? -1 : 1) * 3);
-  orbit.pos.x = THREE.MathUtils.clamp(orbit.pos.x, -HALF, HALF);
-  orbit.pos.y = THREE.MathUtils.clamp(orbit.pos.y, -2, 60);
-  orbit.pos.z = THREE.MathUtils.clamp(orbit.pos.z, -HALF, HALF);
+  // ponytail: no limit - was HALF/60
 }, { passive: true });
 
 const keys = S.keys;
@@ -106,16 +105,20 @@ function finishDrag() {
 
 
 (async function boot() {
+  const t0 = performance.now();
+  const loaderEl = document.getElementById('loader');
+  const loaderMsg = document.getElementById('loaderMsg');
   await idb.load(['gault_studio_autosave']);
   let restored = idb.get('gault_studio_autosave');
   if (restored) {
     try {
       S.map = JSON.parse(restored);
       if (!S.map.routes) S.map.routes = { ugv: [] };
-      status('restored autosave — "New" for a blank field');
+      status('restored autosave - "New" for a blank field');
     } catch (e) { S.map = null; }
   }
   if (!S.map) S.map = freshMap('map01');
+  if (loaderMsg) loaderMsg.textContent = 'loading ' + (S.map.name || 'map') + '…';
   $('mapName').value = S.map.name;
   fillModelSelect();
   await loadCustomTextures();
@@ -124,6 +127,14 @@ function finishDrag() {
   rebuildAll();
   dump();
   updateHint();
+  whenAsyncIdle(function() {
+    if (!loaderEl) return;
+    const wait = Math.max(0, 600 - (performance.now() - t0));
+    setTimeout(function() {
+      loaderEl.classList.add('hide');
+      setTimeout(function() { loaderEl.style.display = 'none'; }, 400);
+    }, wait);
+  });
 })();
 
 

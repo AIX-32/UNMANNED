@@ -4,12 +4,13 @@ import { camera } from './core.js';
 import { setFiring, switchWeapon, startReload, curWeaponName, FLASH, FLASH_DEBUG, toggleTrace, tryBash, usingBox } from './weapons.js';
 import { throwGrenade } from './grenades.js';
 import { toggleRadar } from './radar.js';
-import { flashDbg, menuActive, requestGameLock, openPause, resumeGame } from './ui.js';
-import { bootActive } from './menu.js';
+import { flashDbg, menuActive, inSettingsView, requestGameLock, openPause, resumeGame } from './ui.js';
+import { bootActive, cheatUnlockAll } from './menu.js';
+import { tryEnterCar, isDriving, exitCar } from './car.js';
 
 const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
 document.addEventListener('mousedown', function(e) {
-  if (S.dead || S.won || S.hub || S.story || S.pvpLobby) return;
+  if (S.dead || S.won || S.hub || S.story || S.pvpLobby || isDriving()) return;
   if (S.settings.laptop) return;
   if (e.button === 2) S.straf = true;
   if (e.button === 0 && S.isLocked) setFiring(true);
@@ -69,14 +70,15 @@ document.addEventListener('mousemove', function(e) {
 document.addEventListener('keydown', function(e) {
   if (S.story) return;
   S.keys[e.code] = true;
-  if (e.code === 'KeyC' && !e.repeat) S.prone = !S.prone;
+  if (e.code === 'KeyF' && !e.repeat) { if (isDriving()) exitCar(); else tryEnterCar(); }
+  if (e.code === 'KeyC' && !e.repeat && !isDriving()) S.prone = !S.prone;
   if (e.code === 'KeyT' && !e.repeat) tryBash();
-  if (e.code === 'KeyG' && !e.repeat && !usingBox) throwGrenade();
+  if (e.code === 'KeyG' && !e.repeat && !usingBox && !isDriving()) throwGrenade();
   if (e.code === 'KeyR' && !e.repeat) startReload();
   if (e.code === 'KeyX' && !e.repeat) S.ads = !S.ads;
   if (e.code === 'KeyI' && !e.repeat) S.inspect = !S.inspect;
-  if (S.settings.laptop && e.code === 'KeyQ' && !e.repeat) S.straf = true;
-  if (S.settings.laptop && e.code === 'KeyE' && !e.repeat && S.isLocked) setFiring(true);
+  if (S.settings.laptop && e.code === 'KeyQ' && !e.repeat && !isDriving()) S.straf = true;
+  if (S.settings.laptop && e.code === 'KeyE' && !e.repeat && S.isLocked && !isDriving()) setFiring(true);
   if (e.code === 'KeyY' && !e.repeat) toggleTrace();
   if (e.code === 'KeyV' && !e.repeat) toggleRadar();
   if (e.code === 'KeyY' && !e.repeat && FLASH_DEBUG) {
@@ -112,6 +114,9 @@ document.addEventListener('keydown', function(e) {
     if (menuActive()) resumeGame();
     else openPause();
   }
+
+  // ponytail: dev cheat — H in the settings unlocks campaign + grants 9k CC
+  if (e.code === 'KeyH' && !e.repeat && inSettingsView()) cheatUnlockAll();
 });
 document.addEventListener('keyup', function(e) {
   if (S.settings.laptop && e.code === 'KeyQ' && !S.settings.strafLock) S.straf = false;

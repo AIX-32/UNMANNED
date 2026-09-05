@@ -55,6 +55,7 @@ const CAMPAIGN = [
   { map: 'Drift', desc: '' },
   { map: 'Haywire', desc: '' },
   { map: 'Yank', desc: '' },
+  { map: 'Jampo', desc: '' },
 ];
 const LVLPLAY = [
   { map: 'Yazd', desc: '' },
@@ -87,6 +88,14 @@ function libUpsert(name, json) {
 function playNamed(map) { location.href = 'index.html?map=' + encodeURIComponent(map); }
 function playCustom(json) { idb.set(PLAY_KEY, json).then(function() { location.href = 'index.html?map=__custom'; }); }
 function goStudio() { location.href = 'studio/index.html'; }
+
+// ponytail: dev cheat — press H in settings (see input.js)
+export function cheatUnlockAll() {
+  CAMPAIGN.forEach(function(c) { campMarkBeaten(c.map); });
+  const v = parseInt(idb.get('gault_cc') || '0', 10) || 0;
+  idb.set('gault_cc', String(v + 9000));
+  drawMenu();
+}
 
 
 function slotCycle(slot, dir) {

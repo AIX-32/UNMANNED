@@ -246,13 +246,12 @@ export function updateIdent(dt, now) {
     const boxH = Math.max((_sz.y + pad * 2) * boost * sy, dist * MIN_SCREEN);
     fitBox(rr.g, _c.x, _c.y, _c.z, boxW, boxH);
     const bar = rr.g.children[1];
+    const lbl = rr.g.radarLabel;
+    if (e.objective) { bar.visible = false; lbl.mesh.visible = false; continue; }
     bar.visible = true;
     const bh = Math.max(0.05, boxH * 0.1);
     bar.position.set(0, -boxH * 0.5 - boxH * 0.08 - bh * 0.5, 0);
     bar.scale.set(boxW * 0.85 * THREE.MathUtils.clamp(hp / e.maxHp, 0, 1), bh, 1);
-
-
-    const lbl = rr.g.radarLabel;
     drawRadarLabel(lbl, e.pct());
     const lw = Math.max(boxW * 0.5, dist * 0.1);
     const lh = lw * 0.5;

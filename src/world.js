@@ -1,6 +1,6 @@
 
 
-import { scene, camera, gunAmbient, gunKey, gunHemi } from './core.js';
+import { scene, camera, gunAmbient, gunKey, gunHemi, setRenderSize } from './core.js';
 import { S } from './state.js';
 import { syncHub } from './menu.js';
 import { buildUgvGrid, setUgvMapReady } from './ugv.js';
@@ -8,6 +8,8 @@ import { identExtractZone, clearExtractZone } from './ident.js';
 import { setTurretMapReady } from './turret.js';
 import { setDroneMapReady } from './drone.js';
 import { setBossMapReady } from './boss.js';
+import { setCarMapReady } from './car.js';
+import { setFogSlider } from './core.js';
 const ambient = new THREE.AmbientLight(0x403030, 0.5);
 scene.add(ambient);
 const moon = new THREE.DirectionalLight(0xff6a2a, 1.1);
@@ -49,9 +51,9 @@ export function applyNight(on, mid) {
 
 let terrainHeights = null;
 let terrainSegs = 64, terrainSize = 200;
-const terrainMin = -100;
 export function setTerrain(heights, segs, size) {
   terrainHeights = heights; terrainSegs = segs; terrainSize = size;
+  setRenderSize(size);
 }
 export function getTerrain() { return terrainHeights ? { heights: terrainHeights, segs: terrainSegs, size: terrainSize } : null; }
 function formulaHeight(x, z) {
@@ -61,8 +63,9 @@ export function groundHeight(x, z) {
   if (!terrainHeights) return formulaHeight(x, z);
 
   const n = terrainSegs, step = terrainSize / n;
-  const fx = THREE.MathUtils.clamp((x - terrainMin) / step, 0, n - 1e-4);
-  const fz = THREE.MathUtils.clamp((z - terrainMin) / step, 0, n - 1e-4);
+  const mn = -terrainSize / 2;
+  const fx = THREE.MathUtils.clamp((x - mn) / step, 0, n - 1e-4);
+  const fz = THREE.MathUtils.clamp((z - mn) / step, 0, n - 1e-4);
   const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz;
   const w = n + 1, H = terrainHeights;
   const h00 = H[iz * w + ix], h10 = H[iz * w + ix + 1], h01 = H[(iz + 1) * w + ix], h11 = H[(iz + 1) * w + ix + 1];
@@ -261,7 +264,6 @@ export function fixGun(model) {
 
 const grassTex = new THREE.TextureLoader().load('assets/textures/grass.webp');
 grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
-grassTex.repeat.set(150, 150);
 
 
 
@@ -274,7 +276,7 @@ function groundMaterial() {
     const tile = Math.max(0.5, parseFloat(g.tile) || 4);
     const t = new THREE.Texture();
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(200 / tile, 200 / tile);
+    t.repeat.set(terrainSize / tile, terrainSize / tile);
     let img = texCache[g.tex];
     if (img) {
       t.image = img;
@@ -292,6 +294,8 @@ function groundMaterial() {
     if (uk > 0) { lm.emissive = new THREE.Color(0xffffff); lm.emissiveMap = t; lm.emissiveIntensity = uk; lm.color.setScalar(1 - uk); }
     return lm;
   }
+  grassTex.repeat.set(terrainSize * 0.75, terrainSize * 0.75);
+  grassTex.needsUpdate = true;
   return new THREE.MeshLambertMaterial({ map: grassTex, vertexColors: true });
 }
 let MAPJSON = null;
@@ -399,8 +403,9 @@ function addBoxCollider(bb) {
 
 let treeProto = null, treeProtoBox = null;
 const treeList = [];
-let treeInstances = null;
+let treeChunks = [];
 let treeCount = 0;
+const TREE_CHUNK = 80; // ponytail: chunk → frustum culls whole InstancedMesh off-screen
 function placeTree(pos, rotYdeg, scale, y, solid) {
   treeList.push({ x: pos[0], z: pos[1], y: y, rotYdeg: rotYdeg || 0, scale: scale, solid: solid, coll: null });
   loadProto('tree.gltf', function(proto) {
@@ -415,56 +420,119 @@ function placeTree(pos, rotYdeg, scale, y, solid) {
 function bakeTrees() {
   if (!treeProto) return;
   const n = treeList.length;
-  if (treeInstances && n === treeCount) return;
-  if (treeInstances) {
-    treeInstances.forEach(function(t) { mapGroup.remove(t.im); });
-    treeInstances = null;
-  }
-  treeInstances = [];
+  if (treeChunks.length && n === treeCount) return;
+  treeChunks.forEach(function(c) { c.insts.forEach(function(t) { mapGroup.remove(t.im); }); });
+  treeChunks = [];
+  if (!n) { treeCount = 0; buildUgvGrid(); return; }
   treeProto.updateMatrixWorld(true);
-  treeProto.traverse(function(o) {
-    if (o.isMesh) {
-      const im = new THREE.InstancedMesh(o.geometry, o.material, n);
-      im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-      im.castShadow = true;
-      im.receiveShadow = true;
-      mapGroup.add(im);
-
-
-
-      treeInstances.push({ im: im, local: o.matrixWorld.clone() });
-    }
-  });
-  treeCount = n;
-  const mtx = new THREE.Matrix4(), eul = new THREE.Euler(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
-  const inst = new THREE.Matrix4();
+  const byChunk = new Map();
   for (let i = 0; i < n; i++) {
     const t = treeList[i];
-
-    const baseY = t.y === 'drop' ? groundHeight(t.x, t.z) - treeProtoBox.min.y * t.scale : (t.y || 0) - treeProtoBox.min.y * t.scale;
-    quat.setFromEuler(eul.set(0, THREE.MathUtils.degToRad(t.rotYdeg), 0));
-    scl.setScalar(t.scale);
-    mtx.compose(new THREE.Vector3(t.x, baseY, t.z), quat, scl);
-    for (let k = 0; k < treeInstances.length; k++) {
-      inst.multiplyMatrices(mtx, treeInstances[k].local);
-      treeInstances[k].im.setMatrixAt(i, inst);
-    }
-    if (t.coll) {
-      t.coll.x = t.x; t.coll.z = t.z; t.coll.r = 0.85 * t.scale;
-      t.coll.y0 = baseY; t.coll.y1 = baseY + 2.2 * t.scale;
-    } else if (t.solid !== false) {
-      t.coll = { type: 'cyl', x: t.x, z: t.z, r: 0.85 * t.scale, y0: baseY, y1: baseY + 2.2 * t.scale };
-      pushCollider(t.coll);
-    }
+    const key = Math.floor((t.x + 1000) / TREE_CHUNK) + ',' + Math.floor((t.z + 1000) / TREE_CHUNK);
+    let a = byChunk.get(key);
+    if (!a) { a = []; byChunk.set(key, a); }
+    a.push(i);
   }
-  treeInstances.forEach(function(t) { t.im.instanceMatrix.needsUpdate = true; });
+  const mtx = new THREE.Matrix4(), eul = new THREE.Euler(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+  const inst = new THREE.Matrix4();
+  byChunk.forEach(function(idxs) {
+    const insts = [];
+    treeProto.traverse(function(o) {
+      if (o.isMesh) {
+        const im = new THREE.InstancedMesh(o.geometry, o.material, idxs.length);
+        im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        im.castShadow = true;
+        im.receiveShadow = true;
+        im.frustumCulled = false;
+        mapGroup.add(im);
+        insts.push({ im: im, local: o.matrixWorld.clone() });
+      }
+    });
+    for (let ii = 0; ii < idxs.length; ii++) {
+      const i = idxs[ii];
+      const t = treeList[i];
+      const baseY = t.y === 'drop' ? groundHeight(t.x, t.z) - treeProtoBox.min.y * t.scale : (t.y || 0) - treeProtoBox.min.y * t.scale;
+      quat.setFromEuler(eul.set(0, THREE.MathUtils.degToRad(t.rotYdeg), 0));
+      scl.setScalar(t.scale);
+      mtx.compose(new THREE.Vector3(t.x, baseY, t.z), quat, scl);
+      for (let k = 0; k < insts.length; k++) {
+        inst.multiplyMatrices(mtx, insts[k].local);
+        insts[k].im.setMatrixAt(ii, inst);
+      }
+      if (t.coll) {
+        t.coll.x = t.x; t.coll.z = t.z; t.coll.r = 0.85 * t.scale;
+        t.coll.y0 = baseY; t.coll.y1 = baseY + 2.2 * t.scale;
+      } else if (t.solid !== false) {
+        t.coll = { type: 'cyl', x: t.x, z: t.z, r: 0.85 * t.scale, y0: baseY, y1: baseY + 2.2 * t.scale };
+        pushCollider(t.coll);
+      }
+    }
+    insts.forEach(function(t) { t.im.instanceMatrix.needsUpdate = true; if (t.im.geometry) t.im.geometry.computeBoundingSphere(); });
+    treeChunks.push({ insts: insts, idxs: idxs });
+  });
+  treeCount = n;
   buildUgvGrid();
 }
 
 
 
+let bushProto = null, bushBox = null;
+const bushList = [];
+let bushChunks = [];
+let bushCount = 0;
+const BUSH_CHUNK = 80;
+function placeBush(pos, rotYdeg, scale, y, solid) {
+  bushList.push({ x: pos[0], z: pos[1], y: y, rotYdeg: rotYdeg || 0, scale: scale, solid: solid, coll: null });
+  loadProto('bush.gltf', function(proto) {
+    if (!bushProto) { bushProto = proto; bushBox = new THREE.Box3().setFromObject(proto); fixGun(proto); }
+    bakeBushes();
+  });
+}
+function bakeBushes() {
+  if (!bushProto) return;
+  const n = bushList.length;
+  if (bushChunks.length && n === bushCount) return;
+  bushChunks.forEach(function(c){ c.insts.forEach(function(t){ mapGroup.remove(t.im); }); });
+  bushChunks = [];
+  if (!n) { bushCount = 0; buildUgvGrid(); return; }
+  bushProto.updateMatrixWorld(true);
+  const byChunk = new Map();
+  for (let i = 0; i < n; i++) {
+    const t = bushList[i];
+    const key = Math.floor((t.x + 1000) / BUSH_CHUNK) + ',' + Math.floor((t.z + 1000) / BUSH_CHUNK);
+    let a = byChunk.get(key); if (!a) { a = []; byChunk.set(key, a); } a.push(i);
+  }
+  const mtx = new THREE.Matrix4(), eul = new THREE.Euler(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+  const inst = new THREE.Matrix4();
+  byChunk.forEach(function(idxs){
+    const insts = [];
+    bushProto.traverse(function(o){
+      if (o.isMesh) {
+        const im = new THREE.InstancedMesh(o.geometry, o.material, idxs.length);
+        im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false;
+        mapGroup.add(im);
+        insts.push({ im: im, local: o.matrixWorld.clone() });
+      }
+    });
+    for (let ii = 0; ii < idxs.length; ii++) {
+      const i = idxs[ii]; const t = bushList[i];
+      const baseY = t.y === 'drop' ? groundHeight(t.x, t.z) - bushBox.min.y * t.scale : (t.y || 0) - bushBox.min.y * t.scale;
+      quat.setFromEuler(eul.set(0, THREE.MathUtils.degToRad(t.rotYdeg), 0)); scl.setScalar(t.scale);
+      mtx.compose(new THREE.Vector3(t.x, baseY, t.z), quat, scl);
+      for (let k = 0; k < insts.length; k++) { inst.multiplyMatrices(mtx, insts[k].local); insts[k].im.setMatrixAt(ii, inst); }
+      if (t.coll) { t.coll.x = t.x; t.coll.z = t.z; t.coll.r = 0.8 * t.scale; t.coll.y0 = baseY; t.coll.y1 = baseY + 0.8 * t.scale; }
+      else if (t.solid !== false) { t.coll = { type: 'cyl', x: t.x, z: t.z, r: 0.8 * t.scale, y0: baseY, y1: baseY + 0.8 * t.scale }; pushCollider(t.coll); }
+    }
+    insts.forEach(function(t){ t.im.instanceMatrix.needsUpdate = true; if (t.im.geometry) t.im.geometry.computeBoundingSphere(); });
+    bushChunks.push({ insts: insts });
+  });
+  bushCount = n; buildUgvGrid();
+}
+
 function placeProp(model, pos, rotYdeg, scale, y, solid) {
   if (model === 'tree.gltf') return placeTree(pos, rotYdeg, scale || 1, y, solid);
+  if (model === 'bush.gltf') return placeBush(pos, rotYdeg, scale || 1, y, solid);
   const g = mapGroup;
   loadProto(model, function(proto) {
     const m = proto.clone();
@@ -627,81 +695,125 @@ export function addWall(wall) {
 
 
 
-let grassMesh = null;
+let grassChunks = [];
+const GRASS_CHUNK = 64; // ponytail: chunk → frustum + distance culled, 64m matches terrain
+function clearGrass() {
+  grassChunks.forEach(function(c) { scene.remove(c.mesh); c.mesh.geometry.dispose(); c.mesh.material.dispose(); });
+  grassChunks = [];
+}
 function buildGrass() {
-  if (grassMesh) { scene.remove(grassMesh); grassMesh.geometry.dispose(); grassMesh.material.dispose(); grassMesh = null; }
+  clearGrass();
   const g = MAPJSON && MAPJSON.grass;
   if (!g || !g.tex || !g.pts || !g.pts.length) return;
-  const positions = [], uvs = [], indices = [];
-  const addQuad = function(x, y0, z, w, h, a) {
-    const hx = Math.cos(a) * w / 2, hz = Math.sin(a) * w / 2;
-    positions.push(x + hx, y0, z + hz,  x + hx, y0 + h, z + hz,  x - hx, y0, z - hz,  x - hx, y0 + h, z - hz);
-    uvs.push(1, 0, 1, 1, 0, 0, 0, 1);
-    const b = positions.length / 3;
-    indices.push(b - 4, b - 3, b - 2,  b - 3, b - 1, b - 2);
-  };
+  const byChunk = new Map();
+  g.pts.forEach(function(pt) {
+    const key = Math.floor((pt[0] + 1000) / GRASS_CHUNK) + ',' + Math.floor((pt[1] + 1000) / GRASS_CHUNK);
+    let a = byChunk.get(key);
+    if (!a) { a = []; byChunk.set(key, a); }
+    a.push(pt);
+  });
   const n = Math.max(2, Math.min(6, g.pairs || 3));
   const rad = g.radius || 0.6;
   const perPoint = Math.max(n, Math.round(n * (rad * rad) / 0.36));
   const minGap = 0.5 * (g.size || 0.7);
-  g.pts.forEach(function(pt) {
-    const placed = [];
-    let tries = 0;
-    while (placed.length < perPoint && tries < perPoint * 40) {
-      tries++;
-      const ang = Math.random() * Math.PI * 2;
-      const d = rad * Math.sqrt(Math.random());
-      const x = pt[0] + Math.cos(ang) * d;
-      const z = pt[1] + Math.sin(ang) * d;
-      let tooClose = false;
-      for (let j = 0; j < placed.length; j++) {
-        const dx = x - placed[j][0], dz = z - placed[j][1];
-        if (dx * dx + dz * dz < minGap * minGap) { tooClose = true; break; }
-      }
-      if (tooClose) continue;
-      placed.push([x, z]);
-      const y = groundHeight(x, z);
-      const a0 = Math.random() * Math.PI * 2;
-      const s = 0.85 + Math.random() * 0.3;
-      const w = (g.size || 0.7) * s, h = (g.height || 1.3) * (0.85 + Math.random() * 0.3);
-      addQuad(x, y, z, w, h, a0);
-      addQuad(x, y, z, w, h, a0 + Math.PI / 2);
-    }
-  });
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geo.setIndex(indices);
-  geo.computeVertexNormals();
-
-  const gnorm = geo.attributes.normal;
-  for (let i = 0; i < gnorm.count; i++) gnorm.setXYZ(i, 0, 1, 0);
+  // shared tex/mat per build
   const tex = new THREE.Texture();
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   let img = texCache[g.tex];
-  if (img) {
-    tex.image = img;
-    tex.needsUpdate = true;
-  } else {
-    img = new Image();
-    img.onload = function() { tex.image = img; tex.needsUpdate = true; };
-    img.src = g.tex;
-    texCache[g.tex] = img;
-  }
-
+  if (img) { tex.image = img; tex.needsUpdate = true; }
+  else { img = new Image(); img.onload = function() { tex.image = img; tex.needsUpdate = true; }; img.src = g.tex; texCache[g.tex] = img; }
   const uk = +(g.unlit ?? 0) || 0;
-  const mat = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: uk });
-  if (uk > 0) mat.color.setScalar(Math.max(0, 1 - uk));
-
-  mat.onBeforeCompile = function(sh) {
+  const baseMat = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: uk });
+  if (uk > 0) baseMat.color.setScalar(Math.max(0, 1 - uk));
+  baseMat.onBeforeCompile = function(sh) {
     sh.fragmentShader = sh.fragmentShader
       .split('( gl_FrontFacing ) ? vLightFront : vLightBack').join('vLightFront')
       .split('( gl_FrontFacing ) ? vIndirectFront : vIndirectBack').join('vIndirectFront');
   };
-  mat.customProgramCacheKey = function() { return 'grass-frontlit'; };
-  grassMesh = new THREE.Mesh(geo, mat);
-  grassMesh.userData.ground = true;
-  scene.add(grassMesh);
+  baseMat.customProgramCacheKey = function() { return 'grass-frontlit'; };
+  const entries = Array.from(byChunk.entries());
+  const async = g.pts.length > 4000;
+  let ei = 0;
+  function buildOne(pts, key) {
+    const positions = [], uvs = [], indices = [];
+    const addQuad = function(x, y0, z, w, h, a) {
+      const hx = Math.cos(a) * w / 2, hz = Math.sin(a) * w / 2;
+      positions.push(x + hx, y0, z + hz,  x + hx, y0 + h, z + hz,  x - hx, y0, z - hz,  x - hx, y0 + h, z - hz);
+      uvs.push(1, 0, 1, 1, 0, 0, 0, 1);
+      const b = positions.length / 3;
+      indices.push(b - 4, b - 3, b - 2,  b - 3, b - 1, b - 2);
+    };
+    pts.forEach(function(pt) {
+      const placed = [];
+      let tries = 0;
+      while (placed.length < perPoint && tries < perPoint * 40) {
+        tries++;
+        const ang = Math.random() * Math.PI * 2;
+        const d = rad * Math.sqrt(Math.random());
+        const x = pt[0] + Math.cos(ang) * d;
+        const z = pt[1] + Math.sin(ang) * d;
+        let tooClose = false;
+        for (let j = 0; j < placed.length; j++) {
+          const dx = x - placed[j][0], dz = z - placed[j][1];
+          if (dx * dx + dz * dz < minGap * minGap) { tooClose = true; break; }
+        }
+        if (tooClose) continue;
+        placed.push([x, z]);
+        const y = groundHeight(x, z);
+        const a0 = Math.random() * Math.PI * 2;
+        const s = 0.85 + Math.random() * 0.3;
+        const w = (g.size || 0.7) * s, h = (g.height || 1.3) * (0.85 + Math.random() * 0.3);
+        addQuad(x, y, z, w, h, a0);
+        addQuad(x, y, z, w, h, a0 + Math.PI / 2);
+      }
+    });
+    if (!positions.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    const gnorm = geo.attributes.normal;
+    for (let i = 0; i < gnorm.count; i++) gnorm.setXYZ(i, 0, 1, 0);
+    geo.computeBoundingSphere();
+    const mat = baseMat.clone();
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.ground = true;
+    mesh.frustumCulled = true;
+    // center for distance cull
+    const parts = key.split(',');
+    mesh.userData.chunkX = parseInt(parts[0],10)*GRASS_CHUNK - 1000 + GRASS_CHUNK/2;
+    mesh.userData.chunkZ = parseInt(parts[1],10)*GRASS_CHUNK - 1000 + GRASS_CHUNK/2;
+    scene.add(mesh);
+    grassChunks.push({ mesh: mesh, x: mesh.userData.chunkX, z: mesh.userData.chunkZ });
+  }
+  function nextGrassChunk() {
+    if (ei >= entries.length) return;
+    const e = entries[ei++];
+    buildOne(e[1], e[0]);
+    if (async && ei < entries.length) setTimeout(nextGrassChunk, 0);
+    else if (ei < entries.length) nextGrassChunk();
+  }
+  if (async) nextGrassChunk();
+  else entries.forEach(function(e){ buildOne(e[1], e[0]); });
+}
+export function updateGrassCull() {
+  const cx = camera.position.x, cz = camera.position.z;
+  for (let i = 0; i < grassChunks.length; i++) {
+    const c = grassChunks[i];
+    const d2 = (c.x - cx)*(c.x - cx) + (c.z - cz)*(c.z - cz);
+    c.mesh.visible = d2 < 19600; // 140^2
+  }
+  // ponytail: shadows only near (100m) — 2048 shadow map fill is the other big cost
+  for (let i = 0; i < treeChunks.length; i++) {
+    const ch = treeChunks[i];
+    // chunk center approx from first idx
+    const t = treeList[ch.idxs ? ch.idxs[0] : 0];
+    if (!t) continue;
+    const d2 = (t.x - cx)*(t.x - cx) + (t.z - cz)*(t.z - cz);
+    const near = d2 < 10000;
+    ch.insts.forEach(function(o){ o.im.castShadow = near; });
+  }
 }
 
 
@@ -718,7 +830,7 @@ export function inGrass(x, z) {
 }
 
 
-export const MAP_SPAWNS = { player: null, ugvs: [], drones: [], turrets: [], bosses: [], ugvRoute: [], extract: null, sectors: [], healthBoxes: [], pvp: [] };
+export const MAP_SPAWNS = { player: null, ugvs: [], drones: [], turrets: [], bosses: [], ugvRoute: [], extract: null, sectors: [], healthBoxes: [], radios: [], pvp: [], cars: [] };
 export const EXTRACT_R = 6;
 export function atExtract() {
   const e = MAP_SPAWNS.extract;
@@ -766,6 +878,53 @@ export function updateHealthBoxes(dt) {
 }
 
 
+// radio collectibles: float + spin like health boxes; win = grab them all (foes optional)
+let radioProto = null;
+const radioPickups = [];
+export let radioTotal = 0;
+let radioGot = 0;
+export function radiosPlaced() { return radioTotal > 0; }
+export function radiosLeft() { return radioTotal - radioGot; }
+function placeRadio(x, z) {
+  radioTotal++;
+  loadProto('radio.gltf', function(proto) {
+    if (!radioProto) { radioProto = proto; fixGun(radioProto); }
+    const m = radioProto.clone();
+    m.scale.setScalar(2);
+    m.position.set(x, 0, z);
+    m.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(m);
+    m.position.y = groundHeight(x, z) - bb.min.y + (bb.max.y - bb.min.y);
+    scene.add(m);
+    radioPickups.push({ x: x, z: z, y: m.position.y, mesh: m });
+  });
+}
+export function updateRadios(dt) {
+  let got = 0;
+  for (let i = radioPickups.length - 1; i >= 0; i--) {
+    const p = radioPickups[i];
+    p.mesh.rotation.y += dt * 2.4;
+    p.mesh.position.y = p.y + Math.sin(performance.now() * 0.004 + i) * 0.08;
+    if (Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < 1.6 &&
+        Math.abs(camera.position.y - p.y) < 2.2) {
+      scene.remove(p.mesh);
+      radioPickups.splice(i, 1);
+      got++;
+      radioGot++;
+    }
+  }
+  return got;
+}
+
+// ponytail: expose live radios as objective scan entries (no hp) for the radar outline
+export function radiosScan() {
+  return radioPickups.map(function(p) {
+    return { x: p.x, z: p.z, group: p.mesh, ref: p, maxHp: 1, objective: true,
+      hpFn: function() { return 1; }, pct: function() { return 100; } };
+  });
+}
+
+
 
 
 
@@ -782,7 +941,11 @@ function resetWorld() {
   scene.remove(mapGroup);
   disposeChildren(mapGroup);
   colliders.length = 0; grid.fill(null);
-  treeList.length = 0; treeCount = 0; treeInstances = null;
+  treeList.length = 0; treeCount = 0; treeChunks = [];
+  bushList.length = 0; bushCount = 0; bushChunks = [];
+  // clear grass chunks (not in mapGroup)
+  for (let i = 0; i < grassChunks.length; i++) { scene.remove(grassChunks[i].mesh); grassChunks[i].mesh.geometry.dispose(); grassChunks[i].mesh.material.dispose(); }
+  grassChunks = [];
   tankModel = null; turretModel = null; tankEntityPos = null;
   mapGroup = new THREE.Group();
   scene.add(mapGroup);
@@ -801,14 +964,19 @@ export function applyMap(j) {
   S.mapBoxes = 0;
   S.mapGrenades = 4;
   while (hboxPickups.length) { scene.remove(hboxPickups.pop().mesh); }
+  while (radioPickups.length) { scene.remove(radioPickups.pop().mesh); }
+  radioTotal = 0; radioGot = 0;
   MAP_SPAWNS.sectors = (j.sectors || []).map(function(s) { return s.pts || []; });
   MAP_SPAWNS.healthBoxes = [];
+  MAP_SPAWNS.radios = [];
   MAP_SPAWNS.pvp = [];
+  MAP_SPAWNS.cars = [];
   MAP_SPAWNS.extract = null;
   clearExtractZone();
   if (j.terrain && j.terrain.heights) {
     setTerrain(Float32Array.from(j.terrain.heights), j.terrain.segs || 64, j.terrain.size || 200);
   }
+  if (j.fog != null) setFogSlider(j.fog);
   buildGround();
   buildGrass();
   (j.props || []).forEach(function(p) { placeProp(p.model, p.pos, p.rotY, p.scale || 1, p.y != null ? p.y : 'drop', p.solid); });
@@ -829,6 +997,8 @@ export function applyMap(j) {
     else if (e.kind === 'boss') MAP_SPAWNS.bosses.push([e.pos[0], e.pos[1], e.rotY || 0]);
     else if (e.kind === 'extract') { MAP_SPAWNS.extract = [e.pos[0], e.pos[1]]; placeExtract(e.pos[0], e.pos[1]); }
     else if (e.kind === 'healthbox') MAP_SPAWNS.healthBoxes.push([e.pos[0], e.pos[1]]);
+    else if (e.kind === 'radio') MAP_SPAWNS.radios.push([e.pos[0], e.pos[1]]);
+    else if (e.kind === 'car') MAP_SPAWNS.cars.push({ x: e.pos[0], z: e.pos[1], rotY: e.rotY || 0 });
     else if (e.kind === 'player') {
       MAP_SPAWNS.player = [e.pos[0], e.pos[1], e.rotY || 0];
       camera.position.x = e.pos[0];
@@ -840,11 +1010,13 @@ export function applyMap(j) {
   });
   if (j.routes && j.routes.ugv) MAP_SPAWNS.ugvRoute = j.routes.ugv;
   MAP_SPAWNS.healthBoxes.forEach(function(p) { placeHealthBox(p[0], p[1]); });
+  MAP_SPAWNS.radios.forEach(function(p) { placeRadio(p[0], p[1]); });
   buildUgvGrid();
   setUgvMapReady();
   setTurretMapReady();
   setDroneMapReady();
   setBossMapReady();
+  setCarMapReady();
   syncHub();
   S.worldReady = true;
 }

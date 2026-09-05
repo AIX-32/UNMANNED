@@ -1,6 +1,6 @@
 'use strict';
 
-import { S, HALF, W, SEGS, SIZE } from './state.js';
+import { S, HALF, SIZE } from './state.js';
 import { $, scene, camera, raycaster, mouseNDC, groundMesh, paintMesh, sampleHeight,
          blockGroup, propGroup, markGroup, routeGroup, wallGroup, sectorGroup, brushRing,
          markerSprite, buildBlockMesh, buildPropMesh, buildEntityVisual,
@@ -78,9 +78,9 @@ export function makeGhost() {
 
 
     const et = $('entSel').value;
-    const efile = et === 'tank' ? 'tank.gltf' : et === 'target' ? 'target.gltf' : et === 'turret' ? 'turret.gltf' : et === 'boss' ? 'TAT-10.gltf' : et === 'healthbox' ? 'HPB.gltf' : null;
+    const efile = et === 'tank' ? 'tank.gltf' : et === 'target' ? 'target.gltf' : et === 'turret' ? 'turret.gltf' : et === 'boss' ? 'TAT-10.gltf' : et === 'healthbox' ? 'HPB.gltf' : et === 'radio' ? 'radio.gltf' : null;
     if (efile) {
-      const esc = et === 'tank' ? 2.55 : et === 'turret' ? 1.6 : et === 'boss' ? 1 : et === 'healthbox' ? 1.3 : 1.5;
+      const esc = et === 'tank' ? 2.55 : et === 'turret' ? 1.6 : et === 'boss' ? 1 : et === 'healthbox' ? 1.3 : et === 'radio' ? 1 : 1.5;
       loadProto(efile, function(proto) {
         S.ghostLoading = false;
         if (S.tool !== 'place' || S.ghostKind !== k) return;
@@ -173,7 +173,7 @@ export function finishWall() {
   rebuildWallViz();
   dump();
   saveAutosave();
-  status('wall committed — Enter/RMB to start another');
+  status('wall committed - Enter/RMB to start another');
 }
 export function backspaceWall() {
   if (!S.wallDraft || !S.wallDraft.length) return;
@@ -217,7 +217,7 @@ export function finishSector() {
   rebuildSectorViz();
   dump();
   saveAutosave();
-  status('sector committed — ' + n + ' UGV' + (n === 1 ? '' : 's') + ' auto-assigned to it' + (n ? '' : ' (none inside)') + ' — Enter/RMB to start another');
+  status('sector committed - ' + n + ' UGV' + (n === 1 ? '' : 's') + ' auto-assigned to it' + (n ? '' : ' (none inside)') + ' - Enter/RMB to start another');
 }
 export function backspaceSector() {
   if (!S.sectorDraft || !S.sectorDraft.length) return;
@@ -412,25 +412,25 @@ export function applyBrush(dt) {
   brushRing.scale.setScalar(r);
   if (!S.brushDown) return;
   if (!brushStrokeUndone) { pushUndo(); brushStrokeUndone = true; }
-  const H = S.map.terrain.heights, step = S.map.terrain.size / S.map.terrain.segs;
+  const H = S.map.terrain.heights, n = S.map.terrain.segs, step = S.map.terrain.size / n, w = n + 1;
   const cr = Math.round(r / step);
   const ci = Math.round((hit.point.x + HALF) / step), cj = Math.round((hit.point.z + HALF) / step);
   const flatY = hit.point.y;
-  for (let j = Math.max(0, cj - cr); j <= Math.min(SEGS, cj + cr); j++) {
-    for (let i = Math.max(0, ci - cr); i <= Math.min(SEGS, ci + cr); i++) {
+  for (let j = Math.max(0, cj - cr); j <= Math.min(n, cj + cr); j++) {
+    for (let i = Math.max(0, ci - cr); i <= Math.min(n, ci + cr); i++) {
       const wx = -HALF + i * step, wz = -HALF + j * step;
       const d = Math.hypot(wx - hit.point.x, wz - hit.point.z);
       if (d > r) continue;
       const f = Math.cos(d / r * Math.PI) * 0.5 + 0.5;
-      const idx = j * W + i;
+      const idx = j * w + i;
       if (brushMode === 'raise') H[idx] += str * f * dt;
       else if (brushMode === 'lower') H[idx] -= str * f * dt;
       else if (brushMode === 'smooth') {
         let sum = 0, cnt = 0;
         for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
           const jj = j + dj, ii = i + di;
-          if (jj < 0 || ii < 0 || jj > SEGS || ii > SEGS) continue;
-          sum += H[jj * W + ii]; cnt++;
+          if (jj < 0 || ii < 0 || jj > n || ii > n) continue;
+          sum += H[jj * w + ii]; cnt++;
         }
         H[idx] += ((sum / cnt) - H[idx]) * Math.min(1, dt * 10) * f;
       } else if (brushMode === 'flatten') {
@@ -474,7 +474,7 @@ export function generateMountains() {
   const peak = parseFloat($('mtPeak').value) || 15;
   const above = parseFloat($('mtAbove').value) || 6;
   pushUndo();
-  const H = S.map.terrain.heights, n = S.map.terrain.segs, step = S.map.terrain.size / n;
+  const H = S.map.terrain.heights, n = S.map.terrain.segs, step = S.map.terrain.size / n, w = n + 1;
   const seed = Math.random() * 1000;
   for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
     const wx = -HALF + i * step, wz = -HALF + j * step;
@@ -483,13 +483,13 @@ export function generateMountains() {
     const nv = fbm(wx * 0.045 + seed, wz * 0.045 + 9.1, 5);
     const ridge = Math.pow(1 - Math.abs(2 * nv - 1), 2.2);
     const carve = 0.75 + 0.25 * fbm(wx * 0.02 + 42, wz * 0.02 + 7, 3);
-    H[j * W + i] = ridge * ring * peak * carve;
+    H[j * w + i] = ridge * ring * peak * carve;
   }
 
   for (let p = 0; p < 3; p++) {
     for (let j = 1; j < n; j++) for (let i = 1; i < n; i++) {
-      const k = j * W + i, lim = 2 * step;
-      const avg = (H[k - 1] + H[k + 1] + H[k - W] + H[k + W]) / 4;
+      const k = j * w + i, lim = 2 * step;
+      const avg = (H[k - 1] + H[k + 1] + H[k - w] + H[k + w]) / 4;
       if (H[k] > avg + lim) H[k] = avg + lim;
       else if (H[k] < avg - lim) H[k] = avg - lim;
     }
@@ -500,7 +500,7 @@ export function generateMountains() {
   S.map.groundTex = null;
   bakeStone(above);
   dump(); saveAutosave();
-  status('mountains generated (' + peak + 'm peaks) — stone above ' + above + 'm');
+  status('mountains generated (' + peak + 'm peaks) - stone above ' + above + 'm');
 }
 
 export function bakeStone(above) {
@@ -540,4 +540,116 @@ export function bakeStone(above) {
     dump(); saveAutosave();
   };
   if (img.complete && img.width) run(); else img.onload = run;
+}
+
+export function generateAutoTerrain() {
+  const peak = parseFloat($('autoPeak') && $('autoPeak').value || 22);
+  const above = parseFloat($('autoAbove') && $('autoAbove').value || 7);
+  const feather = parseFloat($('autoFeather') && $('autoFeather').value || 4);
+  const doGrass = !$('autoGrass') || $('autoGrass').checked;
+  const doTrees = !$('autoTrees') || $('autoTrees').checked;
+  const doStone = !$('autoStone') || $('autoStone').checked;
+  pushUndo();
+  const H = S.map.terrain.heights, n = S.map.terrain.segs, step = S.map.terrain.size / n, w = n + 1;
+  const seed = Math.random()*1000, seed2 = seed*1.37;
+  // ponytail: flats + mountain islands - simple mask so flats stay flat, mountains only where mask high (user wants flats then mountains, not mess of bumps)
+  for (let j=0;j<=n;j++) for (let i=0;i<=n;i++) {
+    const wx = -HALF + i*step, wz = -HALF + j*step;
+    // large mountain mask - low freq, 0..1, smoothstep 0.52->0.78 gives ~25% mountain coverage, 75% flats
+    const m0 = fbm(wx*0.006+seed, wz*0.006+seed2, 3);
+    const mask = m0*m0*(3-2*m0); // smooth
+    const m = THREE.MathUtils.smoothstep(m0, 0.52, 0.78);
+    // flats: tiny variation ~0.7m so still walkable/interesting but flat
+    const flat = fbm(wx*0.018+seed, wz*0.018+seed2, 2)*0.55 + fbm(wx*0.045, wz*0.045, 2)*0.18;
+    // mountains: ridged only inside mask
+    const nv = fbm(wx*0.030+seed, wz*0.030+9.1, 4);
+    const ridge = Math.pow(1-Math.abs(2*nv-1), 2.3);
+    const mtn = ridge * peak * m * (0.70 + 0.30*fbm(wx*0.008+42, wz*0.008+7, 2));
+    H[j*w+i] = flat*(1-m*0.65) + mtn;
+  }
+  // light TV smoothing + limiter to keep mountains clean but flats flat
+  for(let pass=0; pass<1; pass++){
+    const G=[1,2,1,2,4,2,1,2,1];
+    const T=H.slice();
+    for(let j=1;j<n;j++) for(let i=1;i<n;i++){
+      const k=j*w+i;
+      let acc=0, idx=0;
+      for(let dj=-1;dj<=1;dj++) for(let di=-1;di<=1;di++) acc+=T[(j+dj)*w+(i+di)]*G[idx++];
+      const h0=T[k];
+      // don't blur flats aggressively - keep them flat
+      const m0=THREE.MathUtils.smoothstep(fbm((-HALF+i*step)*0.006+seed, (-HALF+j*step)*0.006+seed2,3),0.52,0.78);
+      H[k]= h0*(m0*0.45+0.20) + (acc/16)*(0.80 - m0*0.45);
+    }
+  }
+  for (let p=0;p<2;p++) for (let j=1;j<n;j++) for (let i=1;i<n;i++) {
+    const k=j*w+i, lim=1.7*step;
+    const avg=(H[k-1]+H[k+1]+H[k-w]+H[k+w])/4;
+    if (H[k]>avg+lim) H[k]=avg+lim; else if (H[k]<avg-lim) H[k]=avg-lim;
+  }
+  rebuildAll();
+  // grass fields beside mountains - in flats (low, gentle)
+  if (doGrass) {
+    if (!S.map.grass) S.map.grass = { tex:null, pairs:3, size:0.7, height:1.3, pts:[], unlit:false, radius:0.6 };
+    S.map.grass.pts = [];
+    const need = Math.round(90 + SIZE*0.14); // scales with big maps
+    let tries=0;
+    while (S.map.grass.pts.length < need && tries < need*40) {
+      tries++;
+      const x = THREE.MathUtils.randFloatSpread(SIZE*0.92), z = THREE.MathUtils.randFloatSpread(SIZE*0.92);
+      const h = sampleHeight(x,z);
+      if (h < 0.18 || h > 1.45) continue; // flats only
+      // slope check gentle - flats are flat
+      const hx = sampleHeight(x+1,z)-sampleHeight(x-1,z), hz = sampleHeight(x,z+1)-sampleHeight(x,z-1);
+      if (Math.hypot(hx,hz) > 0.38) continue;
+      S.map.grass.pts.push([+x.toFixed(2),+z.toFixed(2)]);
+    }
+  }
+  // greenery on flats edges + low hillsides (not on peaks)
+  if (doTrees) {
+    const count = Math.round(22 + SIZE*0.09);
+    for (let t=0; t<count; t++) {
+      const x = THREE.MathUtils.randFloatSpread(SIZE*0.92), z = THREE.MathUtils.randFloatSpread(SIZE*0.92);
+      const h = sampleHeight(x,z);
+      if (h < 0.9 || h > peak*0.75) continue;
+      const roll = Math.random();
+      const kind = roll < 0.45 ? 'tree' : roll < 0.82 ? 'bush' : 'tree';
+      const model = kind==='tree' ? 'tree.gltf' : 'bush.gltf';
+      const sc = kind==='tree' ? THREE.MathUtils.randFloat(0.85,1.45) : THREE.MathUtils.randFloat(1.1,2.1);
+      S.map.props.push({ model, pos:[+x.toFixed(2),+z.toFixed(2)], rotY:Math.round(Math.random()*360), scale:+sc.toFixed(2), y:'drop', solid:true });
+    }
+  }
+  rebuildAll();
+  // smooth stone paint feathered with noise - not straight line
+  if (doStone) {
+    ensureGroundTex(); paintBaseGrass();
+    const sel=$('mtTex'); const tex = sel && sel.value ? sel.value : proceduralRock();
+    const img=texImg(tex);
+    const run=function(){
+      if (!img.complete || !img.width) return;
+      const mask=document.createElement('canvas'); mask.width=mask.height=GROUND_TEX;
+      const mctx=mask.getContext('2d'); const id=mctx.createImageData(GROUND_TEX,GROUND_TEX);
+      const step2=SIZE/GROUND_TEX;
+      for (let py=0; py<GROUND_TEX; py++) {
+        const wz=-HALF+py*step2;
+        for (let px=0; px<GROUND_TEX; px++) {
+          const wx2=-HALF+px*step2;
+          const h=sampleHeight(wx2,wz);
+          const n=fbm(wx2*0.04+seed, wz*0.04+seed2, 2)*feather*0.55; // wiggly edge
+          const t=(h - (above + n) + feather)/ (feather*2);
+          const a=THREE.MathUtils.clamp(t,0,1);
+          const smooth=a*a*(3-2*a);
+          id.data[(py*GROUND_TEX+px)*4+3]=Math.round(smooth*255);
+        }
+      }
+      mctx.putImageData(id,0,0);
+      const rock=document.createElement('canvas'); rock.width=rock.height=GROUND_TEX; const rctx=rock.getContext('2d');
+      const tilePx=Math.max(8, GROUND_TEX/(SIZE/2)); const th=Math.max(4, Math.round(tilePx*img.height/img.width));
+      for (let ty=0; ty<GROUND_TEX; ty+=th) for (let tx=0; tx<GROUND_TEX; tx+=tilePx) rctx.drawImage(img,tx,ty,tilePx,th);
+      rctx.globalCompositeOperation='destination-in'; rctx.drawImage(mask,0,0);
+      groundTexCtx.drawImage(rock,0,0); groundTex.needsUpdate=true; markGroundDirty(); syncSplat();
+      dump(); saveAutosave();
+    };
+    if (img.complete && img.width) run(); else img.onload=run;
+  } else { dump(); saveAutosave(); }
+  status('auto terrain - '+peak+'m peaks, '+ (S.map.grass && S.map.grass.pts ? S.map.grass.pts.length : 0)+' grass fields, '+S.map.props.length+' props · feather '+feather+'m');
 }

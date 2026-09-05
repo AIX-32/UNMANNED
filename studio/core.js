@@ -1,6 +1,6 @@
 'use strict';
 
-import { S, SEGS, SIZE, HALF, W, freshSplat, formulaHeight, syncSize } from './state.js';
+import { S, SIZE, HALF, freshSplat, syncSize } from './state.js';
 import * as idb from '../idb.js';
 
 export function $(id) { return document.getElementById(id); }
@@ -10,6 +10,36 @@ export function status(msg) {
 }
 export function show(el) { el.style.display = 'flex'; }
 export function hide(el) { el.style.display = 'none'; }
+
+// ---- window pinning: a pinned fwin stays open when you switch tools/workspaces ----
+const pinned = new Set();
+export function isPinned(id) { return !!id && pinned.has(id); }
+export function setPinned(id, on) {
+  if (!id) return;
+  if (on) pinned.add(id); else pinned.delete(id);
+  const el = $(id), b = el && el.querySelector && el.querySelector('.fwin-pin');
+  if (b) { b.classList.toggle('on', on); b.title = on ? 'pinned - stays open across tool switches' : 'pin - stays open across tool switches'; }
+}
+export function togglePinned(id) { const on = !isPinned(id); setPinned(id, on); return on; }
+export function addPinButton(win) {
+  if (!win || !win.querySelector) return;
+  const head = win.querySelector('.fwin-head');
+  if (!head || head.querySelector('.fwin-pin')) return;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'fwin-pin';
+  b.textContent = 'pin';
+  b.title = 'pin - stays open across tool switches';
+  const close = head.querySelector('.fwin-close');
+  head.insertBefore(b, close);
+  if (isPinned(win.id)) b.classList.add('on');
+}
+document.addEventListener('click', function(e) {
+  const b = e.target && e.target.closest && e.target.closest('.fwin-pin');
+  if (!b) return;
+  const win = b.closest('.fwin');
+  togglePinned(win ? win.id : null);
+});
 
 
 export const canvas = document.getElementById('view');
@@ -23,10 +53,37 @@ renderer.toneMapping = THREE.NoToneMapping;
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1512);
 scene.fog = new THREE.FogExp2(0x1a1512, 0.010);
+let fogHidden = false;
+let fogSlider = 50;
+function sliderToDensity(v){ // 0 = dense near, 100 = far thin - ponytail: linear 0.02→0.002, 50≈0.011 ≈ old 0.010
+  return 0.020 - (Math.max(0,Math.min(100,parseFloat(v)||0))*0.00018);
+}
+export function setFogHidden(v){
+  fogHidden = !!v;
+  try{ localStorage.setItem('gault_hidefog', fogHidden ? '1' : '0'); }catch(e){}
+  if (scene.fog) scene.fog.density = fogHidden ? 0 : sliderToDensity(fogSlider);
+}
+export function isFogHidden(){ return fogHidden; }
+export function setFogSlider(v){
+  fogSlider = Math.max(0,Math.min(100,parseFloat(v)||0));
+  try{ localStorage.setItem('gault_fogSlider', String(fogSlider)); }catch(e){}
+  if (S.map) S.map.fog = fogSlider;
+  if (scene.fog && !fogHidden) scene.fog.density = sliderToDensity(fogSlider);
+}
+export function getFogSlider(){ return fogSlider; }
+try{ const s = localStorage.getItem('gault_hidefog'); if(s==='1') fogHidden = true; }catch(e){}
+try{ const f = localStorage.getItem('gault_fogSlider'); if(f!=null) fogSlider = Math.max(0,Math.min(100,parseFloat(f)||50)); }catch(e){}
+if (scene.fog) scene.fog.density = fogHidden ? 0 : sliderToDensity(fogSlider);
 
 export const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 600);
 camera.position.set(0, 18, 42);
 camera.lookAt(0, 0, 0);
+// ponytail: far grows with map size so the whole field stays visible
+function syncCameraFar(){
+  const need = Math.ceil(SIZE * 2); // keep default 600 for 200m, 2000 for 1000m
+  const far = Math.max(600, need);
+  if (camera.far !== far){ camera.far = far; camera.updateProjectionMatrix(); }
+}
 
 const ambLight = new THREE.AmbientLight(0x403030, 0.9);
 scene.add(ambLight);
@@ -69,11 +126,20 @@ addEventListener('resize', function() {
 
 
 const texLoader = new THREE.TextureLoader();
+// loader bridge: counts in-flight async world loads (models + textures) so the
+// boot overlay can hide once the scene has actually finished appearing.
+let _pend = 0, _idle = null;
+function _push() { _pend++; }
+function _pop() { if (--_pend <= 0) { _pend = 0; if (_idle) { const f = _idle; _idle = null; f(); } } }
+export function whenAsyncIdle(fn) { if (_pend <= 0) fn(); else _idle = fn; }
+// grab a handle that holds the boot overlay open until its (async) work lands
+export function asyncLoad() { _push(); return _pop; }
 export const TEXTURES = [
   { label: 'grass.webp', src: '../assets/textures/grass.webp' },
 ];
 function makeTex(src, ru, rv) {
-  const t = texLoader.load(src);
+  _push();
+  const t = texLoader.load(src, _pop, undefined, _pop);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(ru || 1, rv || 1);
   return t;
@@ -94,11 +160,13 @@ export const DEFAULT_SCALE = { 'tree.gltf': 0.95, 'bush.gltf': 1.5, 'tank.gltf':
 const protoCache = {};
 export function loadProto(file, cb) {
   if (protoCache[file]) return cb(protoCache[file]);
+  _push();
   new THREE.GLTFLoader().load('../assets/models/' + file, function(gltf) {
     fixModel(gltf.scene);
     protoCache[file] = gltf.scene;
+    _pop();
     cb(gltf.scene);
-  });
+  }, undefined, function() { _pop(); });
 }
 
 
@@ -146,7 +214,8 @@ export function buildGround() {
     scene.remove(groundMesh); groundMesh.geometry.dispose(); groundMesh.material.dispose();
     if (paintMesh) { scene.remove(paintMesh); paintMesh.geometry.dispose(); paintMesh.material.dispose(); paintMesh = null; }
   }
-  const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEGS, SEGS);
+  const n = S.map.terrain.segs;
+  const geo = new THREE.PlaneGeometry(SIZE, SIZE, n, n);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const wx = pos.getX(i), wz = -pos.getY(i);
@@ -191,7 +260,7 @@ export function groundMaterial() {
     if (uk > 0) { lm.emissive = new THREE.Color(0xffffff); lm.emissiveMap = lm.map; lm.emissiveIntensity = uk; lm.color.setScalar(1 - uk); }
     return lm;
   }
-  return new THREE.MeshLambertMaterial({ map: makeTex(TEXTURES[0].src, 150, 150), vertexColors: true });
+  return new THREE.MeshLambertMaterial({ map: makeTex(TEXTURES[0].src, SIZE * 0.75, SIZE * 0.75), vertexColors: true });
 }
 export function sampleHeight(x, z) {
 
@@ -199,7 +268,8 @@ export function sampleHeight(x, z) {
   const fx = THREE.MathUtils.clamp((x + HALF) / step, 0, n - 1e-4);
   const fz = THREE.MathUtils.clamp((z + HALF) / step, 0, n - 1e-4);
   const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz;
-  const h00 = H[iz * W + ix], h10 = H[iz * W + ix + 1], h01 = H[(iz + 1) * W + ix], h11 = H[(iz + 1) * W + ix + 1];
+  const w = n + 1;
+  const h00 = H[iz * w + ix], h10 = H[iz * w + ix + 1], h01 = H[(iz + 1) * w + ix], h11 = H[(iz + 1) * w + ix + 1];
   return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz;
 }
 
@@ -258,16 +328,16 @@ export function markerSprite(text, color) {
 }
 export function buildEntityVisual(e, i) {
   const tag = function(o) { o.userData.ent = i; };
-  if (e.kind === 'tank' || e.kind === 'target' || e.kind === 'turret' || e.kind === 'boss' || e.kind === 'healthbox') {
-    const file = e.kind === 'tank' ? 'tank.gltf' : e.kind === 'turret' ? 'turret.gltf' : e.kind === 'boss' ? 'TAT-10.gltf' : e.kind === 'healthbox' ? 'HPB.gltf' : 'target.gltf';
-    const sc = e.kind === 'tank' ? 2.55 : e.kind === 'turret' ? 1.6 : e.kind === 'boss' ? 1 : e.kind === 'healthbox' ? 1.3 : 1.5;
+  if (e.kind === 'tank' || e.kind === 'target' || e.kind === 'turret' || e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio') {
+    const file = e.kind === 'tank' ? 'tank.gltf' : e.kind === 'turret' ? 'turret.gltf' : e.kind === 'boss' ? 'TAT-10.gltf' : e.kind === 'healthbox' ? 'HPB.gltf' : e.kind === 'car' ? 'buggy.gltf' : e.kind === 'radio' ? 'radio.gltf' : 'target.gltf';
+    const sc = e.kind === 'tank' ? 2.55 : e.kind === 'turret' ? 1.6 : e.kind === 'boss' ? 1 : e.kind === 'healthbox' ? 1.3 : e.kind === 'car' ? 1.0 : e.kind === 'radio' ? 1 : 1.5;
     loadProto(file, function(proto) {
       const m = proto.clone();
       m.scale.setScalar(sc);
       const gy = sampleHeight(e.pos[0], e.pos[1]);
       m.position.set(e.pos[0], gy, e.pos[1]);
       m.rotation.y = THREE.MathUtils.degToRad(e.rotY || 0);
-      if (e.kind === 'tank' || e.kind === 'boss' || e.kind === 'healthbox') {
+      if (e.kind === 'tank' || e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio') {
         m.updateMatrixWorld(true);
         const bb = new THREE.Box3().setFromObject(m);
         m.position.y = gy - bb.min.y;
@@ -276,8 +346,8 @@ export function buildEntityVisual(e, i) {
       markGroup.add(m);
     });
   }
-  const colors = { player: '#7fbf4f', drone: '#ff5a5a', ugv: '#ffb84c', turret: '#ff6a6a', tank: '#ffb84c', target: '#dddddd', boss: '#ff3b6b', healthbox: '#5ef77f', extract: '#5ab4ff', pvp1: '#5ac8ff', pvp2: '#ff5a5a' };
-  const labels = { player: 'P', drone: 'D', ugv: 'U', turret: 'M', tank: 'T', target: 'X', boss: 'B', healthbox: 'H', extract: 'E' };
+  const colors = { player: '#7fbf4f', drone: '#ff5a5a', ugv: '#ffb84c', turret: '#ff6a6a', tank: '#ffb84c', target: '#dddddd', boss: '#ff3b6b', healthbox: '#5ef77f', car: '#ffcc33', radio: '#5ef7f0', extract: '#5ab4ff', pvp1: '#5ac8ff', pvp2: '#ff5a5a' };
+  const labels = { player: 'P', drone: 'D', ugv: 'U', turret: 'M', tank: 'T', target: 'X', boss: 'B', healthbox: 'H', car: 'C', radio: 'R', extract: 'E' };
   const s = markerSprite(labels[e.kind] || (e.kind === 'pvp' ? String(e.team || 1) : '?'), colors[e.kind] || (e.kind === 'pvp' ? (e.team === 2 ? colors.pvp2 : colors.pvp1) : '#fff'));
   s.position.set(e.pos[0], sampleHeight(e.pos[0], e.pos[1]) + 2.2, e.pos[1]);
   tag(s);
@@ -303,6 +373,16 @@ export function buildEntityVisual(e, i) {
 }
 export function rebuildAll() {
   syncSize();
+  syncCameraFar();
+  if (S.map.fog == null) S.map.fog = fogSlider;
+  else {
+    fogSlider = Math.max(0,Math.min(100,parseFloat(S.map.fog)||50));
+    try{ localStorage.setItem('gault_fogSlider', String(fogSlider)); }catch(e){}
+    if (scene.fog && !fogHidden) scene.fog.density = sliderToDensity(fogSlider);
+    const fe=$('fogDensity'), fev=$('fogDensityV');
+    if (fe) fe.value = String(fogSlider);
+    if (fev) fev.textContent = fogSlider + '%';
+  }
   const szEl = $('mapSize');
   if (szEl) szEl.value = SIZE;
   if (!S.map.splat) S.map.splat = freshSplat();
@@ -460,6 +540,8 @@ export function undo() {
 }
 export function showSelInfo() {
   const el = $('selInfo');
+  const sw = $('selFwin');
+  if (sw) sw.style.display = S.selection ? 'block' : 'none';
   if (!S.selection) { el.textContent = 'nothing selected'; el.style.color = '#888'; return; }
   let txt = '';
   if (S.selection.kind === 'prop') { const p = S.map.props[S.selection.i]; txt = 'PROP ' + p.model + ' @ ' + p.pos[0].toFixed(1) + ',' + p.pos[1].toFixed(1) + '  rotY ' + (p.rotY || 0) + '°  scale ' + p.scale; }
@@ -501,7 +583,8 @@ export const orbit = {
 const flyVel = new THREE.Vector3();
 export const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 export function updateCamera(dt) {
-  const speed = 24 * (S.keys.ShiftLeft ? 3 : 1) * dt;
+  const zoomFactor = 1 + Math.max(0, orbit.pos.y) * 0.06 + Math.max(0, orbit.pos.length() - 40) * 0.015;
+  const speed = 24 * zoomFactor * (S.keys.ShiftLeft ? 3 : 1) * dt;
   const right = new THREE.Vector3(Math.cos(orbit.yaw), 0, -Math.sin(orbit.yaw));
 
   const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
@@ -525,9 +608,7 @@ export function updateCamera(dt) {
   if (flyVel.length() > 0) {
     flyVel.normalize().multiplyScalar(speed);
     orbit.pos.add(flyVel);
-    orbit.pos.x = THREE.MathUtils.clamp(orbit.pos.x, -HALF, HALF);
-    orbit.pos.y = THREE.MathUtils.clamp(orbit.pos.y, -2, 60);
-    orbit.pos.z = THREE.MathUtils.clamp(orbit.pos.z, -HALF, HALF);
+    // ponytail: no clamp - was HALF/60, unlimited zoom-out requested
   }
   camera.position.copy(orbit.pos);
   euler.set(orbit.pitch, orbit.yaw, 0, 'YXZ');
@@ -578,7 +659,9 @@ export function ensureGroundTex() {
   groundTex.repeat.set(1, 1);
   if (S.map && S.map.groundTex) {
     const im = new Image();
-    im.onload = function() { groundTexCtx.drawImage(im, 0, 0); groundTex.needsUpdate = true; };
+    _push();
+    im.onload = function() { groundTexCtx.drawImage(im, 0, 0); groundTex.needsUpdate = true; _pop(); };
+    im.onerror = function() { _pop(); };
     im.src = S.map.groundTex;
   }
 }

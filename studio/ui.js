@@ -1,10 +1,10 @@
 'use strict';
 
-import { S, HALF, SIZE, SEGS, W, formulaHeight, freshMap } from './state.js';
+import { S, HALF, SIZE, freshMap, formulaGrid, segsForSize, bilinearResample } from './state.js';
 import * as idb from '../idb.js';
-import { $, status, show, hide, TEXTURES, MODELS, workLight, toggleNight, setNight, undo, camera,
+import { $, status, show, hide, TEXTURES, MODELS, workLight, toggleNight, setNight, setFogHidden, isFogHidden, setFogSlider, getFogSlider, undo, camera,
          pushUndo, dump, dumpNow, saveAutosave, rebuildAll, brushRing, euler, orbit,
-         setPvpRebuild } from './core.js';
+         setPvpRebuild, addPinButton, isPinned } from './core.js';
 import { clearGhost, makeGhost, deleteSelection, duplicateSelection, rotateSelection,
          scaleSelection, nudgeSelection, setBrushMode, finishWall, backspaceWall,
          finishSector, backspaceSector, deleteSector, autoFindUgvs,
@@ -12,7 +12,7 @@ import { clearGhost, makeGhost, deleteSelection, duplicateSelection, rotateSelec
 import { renderLayers, addLayer, clearGroundPaint, refreshGroundMaterial, addCustomTexture } from './paint.js';
 import { setStoryMode } from './story.js';
 import { setGreeneryMode } from './greenery.js';
-import { setGrassMode } from './grass.js';
+import { setGrassMode, finishGrassRegion, backspaceGrassRegion, grassRegionActive } from './grass.js';
 
 
 document.querySelectorAll('.modal').forEach(function(m) {
@@ -23,16 +23,57 @@ document.querySelectorAll('.modal').forEach(function(m) {
 });
 
 
+function initFwin(id, closeId) {
+  const win = $(id);
+  if (!win || win._dragInit) return;
+  win._dragInit = true;
+  const head = win.querySelector('.fwin-head');
+  let drag = null;
+  head.addEventListener('mousedown', function(e) {
+    if (e.target.closest('.fwin-close') || e.target.closest('.fwin-pin')) return;
+    drag = { dx: e.clientX - win.offsetLeft, dy: e.clientY - win.offsetTop };
+    e.preventDefault();
+  });
+  addEventListener('mousemove', function(e) {
+    if (!drag) return;
+    win.style.left = (e.clientX - drag.dx) + 'px';
+    win.style.top = (e.clientY - drag.dy) + 'px';
+  });
+  addEventListener('mouseup', function() { drag = null; });
+  const close = $(closeId);
+  if (close) close.onclick = function() { win.style.display = 'none'; };
+}
+function initPlaceFwin() { initFwin('placeFwin','placeFwinClose'); }
+function initTerrainFwin() { initFwin('terrainBrushFwin','terrainBrushClose'); initFwin('terrainMountainsFwin','terrainMountainsClose'); }
+[
+  ['mapFwin','mapFwinClose'], ['pvpFwin','pvpFwinClose'], ['groundFwin','groundFwinClose'],
+  ['viewFwin','viewFwinClose'], ['wallOpts','wallOptsClose'], ['sectorOpts','sectorOptsClose'],
+  ['paintOpts','paintOptsClose'], ['selFwin','selFwinClose']
+].forEach(function(p) { initFwin(p[0], p[1]); });
+function showWs(btnId, fwinId, on) {
+  const fw = $(fwinId);
+  if (!fw) return;
+  fw.style.display = on ? 'block' : 'none';
+  const b = $(btnId);
+  if (b) b.classList.toggle('on', !!on);
+}
+document.querySelectorAll('.fwin').forEach(addPinButton);
+
 export function setTool(t) {
+  initPlaceFwin(); initTerrainFwin();
   S.tool = t;
   ['Select', 'Place', 'Terrain', 'Route', 'Paint', 'Wall', 'Story', 'Greenery', 'Sector', 'Grass'].forEach(function(n) {
     $('tool' + n).classList.toggle('on', t === n.toLowerCase());
   });
-  $('placeOpts').style.display = t === 'place' ? '' : 'none';
-  $('terrainOpts').style.display = t === 'terrain' ? '' : 'none';
-  $('paintOpts').style.display = t === 'paint' ? '' : 'none';
-  $('wallOpts').style.display = t === 'wall' ? '' : 'none';
-  $('sectorOpts').style.display = t === 'sector' ? '' : 'none';
+  const pf = $('placeFwin');
+  if (pf) pf.style.display = (t === 'place' || isPinned('placeFwin')) ? 'block' : 'none';
+  const tbf = $('terrainBrushFwin'), tmf = $('terrainMountainsFwin');
+  if (tbf) tbf.style.display = (t === 'terrain' || isPinned('terrainBrushFwin')) ? 'block' : 'none';
+  if (tmf) tmf.style.display = (t === 'terrain' || isPinned('terrainMountainsFwin')) ? 'block' : 'none';
+  if ($('paintOpts')) $('paintOpts').style.display = (t === 'paint' || isPinned('paintOpts')) ? 'block' : 'none';
+  if ($('wallOpts')) $('wallOpts').style.display = (t === 'wall' || isPinned('wallOpts')) ? 'block' : 'none';
+  if ($('sectorOpts')) $('sectorOpts').style.display = (t === 'sector' || isPinned('sectorOpts')) ? 'block' : 'none';
+  if (t === 'select') { const sw = $('selFwin'); if (sw) sw.style.display = 'block'; }
   if (t === 'paint') {
 
     const nonGrass = TEXTURES.find(function(x) { return x.src.indexOf('grass') < 0; });
@@ -69,8 +110,8 @@ export function updateHint() {
   if (S.tool === 'wall') t += 'fly around · click = place a vertex (segments connect) · Enter/RMB-click = finish wall · Backspace = drop last vertex · X = delete selected wall';
   if (S.tool === 'sector') t += 'fly around · click = place a vertex (closes to a filled area) · Enter/RMB-click = finish sector · Backspace = drop last vertex · check UGVs in the panel to confine them to this area';
   if (S.tool === 'story') t += 'fly + ＋add cutscene camera points · ▶ preview the path · aim at ground + ＋add text zones · sections type on the intro board';
-  if (S.tool === 'greenery') t += 'hold nothing — left-click stamps trees/bushes in the brush circle · options in the floating window (kind, counts, radius, sizes) · click again = another stamp';
-  if (S.tool === 'grass') t += 'hold LMB + draw to paint billboard grass (2-6 crossed pairs per point) · upload a sprite in the floating window · 0 = grass tool';
+  if (S.tool === 'greenery') t += 'hold nothing - left-click stamps trees/bushes in the brush circle · options in the floating window (kind, counts, radius, sizes) · click again = another stamp';
+  if (S.tool === 'grass') t += 'hold LMB + draw to paint billboard grass · or tick "fill region" in the panel, click to outline an area, then Enter/RMB fills it (dense middle, fades to none at edges) · Backspace drops the last vertex · upload a sprite in the floating window · 0 = grass tool';
   h.textContent = t;
 }
 
@@ -100,10 +141,12 @@ export function handleKey(e) {
     case 'Enter':
       if (S.tool === 'wall') { e.preventDefault(); finishWall(); }
       else if (S.tool === 'sector') { e.preventDefault(); finishSector(); renderSectorList(); }
+      else if (S.tool === 'grass' && grassRegionActive()) { e.preventDefault(); finishGrassRegion(); }
       break;
     case 'Backspace':
       if (S.tool === 'wall') { e.preventDefault(); backspaceWall(); }
       else if (S.tool === 'sector') { e.preventDefault(); backspaceSector(); }
+      else if (S.tool === 'grass' && grassRegionActive()) { e.preventDefault(); backspaceGrassRegion(); }
       break;
     case 'KeyG': cycleSnap(); break;
     case 'KeyX': deleteSelection(); break;
@@ -161,21 +204,35 @@ export function initUI() {
     syncPvpUi();
     rebuildAll();
     dump(); saveAutosave();
-    status(this.checked ? 'pvp map — place team-1 and team-2 spawns' : 'pvp mode off');
+    status(this.checked ? 'pvp map - place team-1 and team-2 spawns' : 'pvp mode off');
   });
   $('nightToggle').addEventListener('change', function() {
     S.map.night = this.checked;
     setNight(this.checked, S.map.midnight);
     syncPvpUi();
     dump(); saveAutosave();
-    status(this.checked ? 'night map — saved' : 'night off');
+    status(this.checked ? 'night map - saved' : 'night off');
   });
   $('midnightToggle').addEventListener('change', function() {
     S.map.midnight = this.checked;
     setNight(S.map.night, this.checked);
     syncPvpUi();
     dump(); saveAutosave();
-    status(this.checked ? 'midnight — almost blind' : 'midnight off');
+    status(this.checked ? 'midnight - almost blind' : 'midnight off');
+  });
+  $('fogToggle').checked = isFogHidden();
+  $('fogToggle').addEventListener('change', function() {
+    setFogHidden(this.checked);
+    status(this.checked ? 'fog hidden - far view' : 'fog on');
+  });
+  const fd=$('fogDensity'), fdv=$('fogDensityV');
+  fd.value = String(S.map.fog != null ? S.map.fog : getFogSlider());
+  fdv.textContent = fd.value + '%';
+  setFogSlider(fd.value);
+  fd.addEventListener('input', function(){
+    fdv.textContent = this.value + '%';
+    setFogSlider(this.value);
+    dump(); saveAutosave();
   });
 
   function pvpSpawnCheck() {
@@ -209,15 +266,19 @@ export function initUI() {
   });
   $('tbReset').addEventListener('click', function() {
     pushUndo();
-    const H = S.map.terrain.heights;
-    for (let j = 0; j < W; j++) for (let i = 0; i < W; i++)
-      H[j * W + i] = formulaHeight(-HALF + i * (SIZE / SEGS), -HALF + j * (SIZE / SEGS));
+    S.map.terrain.heights = formulaGrid(S.map.terrain.segs, S.map.terrain.size);
     rebuildAll();
     dump(); saveAutosave();
     status('terrain reset');
   });
   $('tbRadius').addEventListener('input', function() { $('tbRadiusV').textContent = this.value + 'm'; });
   $('tbStrength').addEventListener('input', function() { $('tbStrengthV').textContent = parseFloat(this.value).toFixed(1); });
+  $('tbExtreme').addEventListener('change', function() {
+    const on = this.checked;
+    $('tbRadius').max = on ? 120 : 30;
+    $('tbStrength').max = on ? 80 : 17;
+    status(on ? 'extreme brush - radius 120m / strength 80' : 'brush normal');
+  });
   $('tbMountains').addEventListener('click', generateMountains);
   $('tbBakeStone').addEventListener('click', function() {
     bakeStone(parseFloat($('mtAbove').value) || 6);
@@ -239,6 +300,16 @@ export function initUI() {
   $('toolGreenery').onclick = function() { setTool('greenery'); };
   $('toolSector').onclick = function() { setTool('sector'); };
   $('toolGrass').onclick = function() { setTool('grass'); };
+
+  [['wsFile', 'mapFwin'], ['wsPvp', 'pvpFwin'], ['wsGround', 'groundFwin'],
+   ['wsView', 'viewFwin'], ['wsSel', 'selFwin']].forEach(function(p) {
+    $(p[0]).onclick = function() {
+      const fw = $(p[1]);
+      const showing = fw.style.display !== 'none';
+      showWs(p[0], p[1], !showing);
+    };
+  });
+  showWs('wsFile', 'mapFwin', true);
   $('wFinish').onclick = finishWall;
   $('wBackspace').onclick = backspaceWall;
   $('wClearAll').onclick = function() {
@@ -336,6 +407,21 @@ export function initUI() {
 
 
   $('mapName').addEventListener('input', function() { S.map.name = this.value; });
+  function applySizeFromInput() {
+    const v = Math.max(50, Math.min(1000, parseFloat($('mapSize').value) || 200));
+    $('mapSize').value = v;
+    if (!S.map.terrain) S.map.terrain = { segs: segsForSize(v), size: v, heights: formulaGrid(segsForSize(v), v) };
+    if (Math.abs((parseFloat(S.map.terrain.size) || 0) - v) < 0.01) return;
+    pushUndo();
+    const oldN = S.map.terrain.segs, newN = segsForSize(v);
+    S.map.terrain.size = v;
+    S.map.terrain.segs = newN;
+    if (oldN !== newN) S.map.terrain.heights = bilinearResample(S.map.terrain.heights, oldN, newN);
+    rebuildAll(); dump(); saveAutosave();
+    status('terrain ' + v + 'm - resampled to ' + newN + 'x' + newN + ' grid (heights stretched)');
+  }
+  $('mapSize').addEventListener('change', applySizeFromInput);
+  $('mapSize').addEventListener('input', function(){ /* live preview without undo flood */ });
   $('bNew').onclick = function() {
     pushUndo();
     S.map = freshMap($('mapName').value || 'map01', parseFloat($('mapSize').value) || 200);
@@ -354,7 +440,7 @@ export function initUI() {
     if (!pvpSpawnCheck()) return;
     dumpNow();
     show($('exportModal'));
-    status('export — drop the file into maps/ and run index.html?map=<name>');
+    status('export - drop the file into maps/ and run index.html?map=<name>');
   };
   $('bDownloadJson').onclick = function() {
     const blob = new Blob([JSON.stringify(S.map, null, 1)], { type: 'application/json' });
@@ -441,7 +527,7 @@ export function renderSectorList() {
     if (!ugvs.length) {
       const hint = document.createElement('div');
       hint.className = 'shint';
-      hint.textContent = 'no UGVs placed yet — Place tool → entity → UGV';
+      hint.textContent = 'no UGVs placed yet - Place tool → entity → UGV';
       el.appendChild(hint);
     } else {
       const boxRow = document.createElement('div');
@@ -467,7 +553,7 @@ export function renderSectorList() {
   if (!sectors.length) {
     const hint = document.createElement('div');
     hint.className = 'shint';
-    hint.textContent = 'draw a closed area with the sector tool (9) — UGVs you check here stay inside it';
+    hint.textContent = 'draw a closed area with the sector tool (9) - UGVs you check here stay inside it';
     el.appendChild(hint);
   }
 }
