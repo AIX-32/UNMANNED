@@ -6,8 +6,9 @@
 import { scene, camera, gunScene } from './core.js';
 import { S } from './state.js';
 import { setPauseMenuVisible, requestGameLock, ccTotal, addCc, bankMapCc, boardShow, boardHide, boardReopen, openSettings, menuActive, hideDeathBoard } from './ui.js';
-import { WEAPONS, getOwned, buyGun, isOwned, getLoadout, setLoadoutSlot, boxCount, buyBox } from './weapons.js';
-import { buyBattery } from './radar.js';
+import { WEAPONS, getOwned, buyGun, isOwned, getLoadout, setLoadoutSlot, boxCount, buyBox, getBoxModel } from './weapons.js';
+import { buyBattery, batteryMax } from './radar.js';
+import { rcOwned, rcOwnedCount, rcMaxUses, buyRc, rcUses, getRcProto } from './rc.js';
 import { startHostUi, startJoinUi, netOpen, getStatus as sessionStatus, onStatus as netOnStatus, onNetVisibility, myName, randomName, pasteName, endSession } from './net.js';
 import { pvpMaps, hostPickMap, hostResetPick, guestReady, hostStart, isHost, guestHasReady, guestHasSent, pickedMap, setLobbyRedraw, PVP_MODE, pvpLobbyActive, setRemoteTags } from './pvp.js';
 import { onlineList, onlineJoin } from './signalling.js';
@@ -137,8 +138,42 @@ storyMesh.renderOrder = 980;
 storyMesh.visible = false;
 scene.add(storyMesh);
 
+// ponytail: shop preview — offscreen 512 canvas rendered then blitted onto menu canvas square
+const previewCv = document.createElement('canvas'); previewCv.width = 512; previewCv.height = 512;
+let previewR = null, previewScene = null, previewCam = null, previewMesh = null;
+function ensurePreview() {
+  if (previewR) return;
+  previewR = new THREE.WebGLRenderer({ canvas: previewCv, alpha: true, antialias: true });
+  previewR.setSize(512, 512, false);
+  previewR.setClearColor(0x000000, 0);
+  previewR.autoClear = true;
+  previewScene = new THREE.Scene();
+  previewScene.background = null;
+  previewCam = new THREE.PerspectiveCamera(30, 1, 0.1, 10);
+  previewCam.position.set(0.6, 0.9, 2.8);
+  previewCam.lookAt(0, 0, 0);
+  previewScene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  const dl = new THREE.DirectionalLight(0xffffff, 0.9); dl.position.set(2, 4, 3); previewScene.add(dl);
+}
+function setPreviewModel(obj) {
+  ensurePreview();
+  if (previewMesh) { previewScene.remove(previewMesh); previewMesh = null; }
+  if (!obj) return;
+  const m = obj.clone(true);
+  const box = new THREE.Box3().setFromObject(m);
+  const sz = new THREE.Vector3(); box.getSize(sz);
+  const ctr = new THREE.Vector3(); box.getCenter(ctr);
+  m.position.sub(ctr);
+  const maxDim = Math.max(sz.x, sz.y, sz.z) || 1;
+  const s = 1.35 / maxDim;
+  m.scale.setScalar(s);
+  previewMesh = m;
+  previewScene.add(previewMesh);
+}
+
 let view = 'hub';
 let campScroll = 0;
+let shopSelected = null; // null | shop item id
 let drawnView = null;
 const menuBtns = [];
 const winBtns = [];
@@ -284,7 +319,9 @@ function panelRow(btns, y, name, btnsSpec) {
 }
 
 function drawMenu() {
-  const mpKey = view === 'multiplayer' ? 'multiplayer:' + mp.mode : view;
+  // ponytail: include shopSelected so grid→detail pops same as any view switch
+  const viewKey = view === 'shop' ? 'shop:' + (shopSelected || 'grid') : view;
+  const mpKey = view === 'multiplayer' ? 'multiplayer:' + mp.mode : viewKey;
   if (mpKey !== drawnView) { drawnView = mpKey; boardReopen(mesh); }
   ctx.clearRect(0, 0, CW, CH);
   menuBtns.length = 0;
@@ -348,41 +385,82 @@ function drawMenu() {
       });
       panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { view = 'hub'; drawMenu(); });
     } else if (view === 'shop') {
-
-      ctx.fillStyle = '#fff';
-      ctx.font = '700 30px Tomorrow,monospace';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      textShadow(true);
-      ctx.fillText('CC ' + ccTotal(), 60, 48);
-      textShadow(false);
-      let y = 120;
-      WEAPONS.forEach(function(w) {
-        if (w.price == null) return;
-        const owned = isOwned(w.name);
-        const afford = ccTotal() >= w.price;
-        panelRow(menuBtns, y, w.name + ' — ' + w.price + ' CC', [
-          { x: 760, w: 180, label: owned ? 'OWNED' : 'BUY', dim: owned || !afford, fn: (owned || !afford) ? null : function() {
-            addCc(-w.price); buyGun(w.name); drawMenu();
-          } },
-        ]);
-        y += 54;
-      });
-
-      const BAT_PRICE = 300;
-      panelRow(menuBtns, y, 'BATTERY +25 — ' + BAT_PRICE + ' CC', [
-        { x: 760, w: 180, label: 'BUY', dim: ccTotal() < BAT_PRICE, fn: ccTotal() < BAT_PRICE ? null : function() {
-          addCc(-BAT_PRICE); buyBattery(); drawMenu();
-        } },
-      ]);
-
-      const BOX_PRICE = 50;
-      panelRow(menuBtns, y + 54, 'HEALTH BOX +30 — ' + BOX_PRICE + ' CC', [
-        { x: 760, w: 180, label: 'BUY', dim: ccTotal() < BOX_PRICE, fn: ccTotal() < BOX_PRICE ? null : function() {
-          addCc(-BOX_PRICE); buyBox(); drawMenu();
-        } },
-      ]);
-      panelBtn(menuBtns, 60, 452, 380, 44, 'BACK', function() { view = 'loadout'; drawMenu(); });
+      // ponytail: grid + detail with spinning preview square on right
+      function shopCatalog() {
+        const a = [];
+        WEAPONS.filter(function(w){ return w.price!=null; }).forEach(function(w){
+          a.push({ id:'gun:'+w.name, title:w.name, price:w.price, desc:w.desc||'', getModel:function(){ return w.full; }, owned:function(){ return isOwned(w.name); }, buy:function(){ addCc(-w.price); buyGun(w.name); } });
+        });
+        a.push({ id:'bat', title:'BATTERY +25', price:300, desc:'Battery upgrade. Base 100 max plus 25 per buy. Drain 15 per second when on. Regen 6 per second when off. 60m scan cone.', getModel:function(){ return null; }, owned:function(){ return false; }, buy:function(){ addCc(-300); buyBattery(); } });
+        a.push({ id:'hp', title:'HEALTH BOX', price:50, desc:'Health Box. Slot 5 hold LMB 6 seconds to heal 30 HP. Uses map stash then vault. Heals past 40 max.', getModel:function(){ return getBoxModel(); }, owned:function(){ return false; }, buy:function(){ addCc(-50); buyBox(); } });
+        const rcCnt = rcOwnedCount();
+        a.push({ id:'rc', title: rcCnt? 'RC CAR ×'+(rcCnt*2)+'/MAP' : 'RC CAR', price:450, desc:'RC bomb car. Press 6 to arm. RMB to place 2.1m ahead. Drive WASD, Space to detonate. 18m blast 900 to 0 falloff. 2 deployments per map per buy.', getModel:function(){ return getRcProto(); }, owned:function(){ return false; }, buy:function(){ addCc(-450); buyRc(); } });
+        return a;
+      }
+      const catalog = shopCatalog();
+      function wrapLines(text, maxW){
+        const words = text.split(' '); const lines=[]; let cur='';
+        words.forEach(function(w){
+          const t = cur ? cur+' '+w : w;
+          if (cur && ctx.measureText(t).width > maxW){ lines.push(cur); cur=w; } else cur=t;
+        });
+        if(cur) lines.push(cur); return lines;
+      }
+      // header CC
+      ctx.fillStyle='#fff'; ctx.font='700 30px Tomorrow,monospace'; ctx.textAlign='left'; ctx.textBaseline='middle'; textShadow(true); ctx.fillText('CC '+ccTotal(), 60, 48); textShadow(false);
+      if (shopSelected) {
+        const it = catalog.find(function(x){ return x.id===shopSelected; }) || catalog[0];
+        // title top-left
+        ctx.fillStyle='#fff'; ctx.font='700 32px Tomorrow,monospace'; ctx.textAlign='left'; ctx.textBaseline='top'; textShadow(true);
+        ctx.fillText(it.title, 60, 110); textShadow(false);
+        // desc left
+        ctx.font='500 18px Tomorrow,monospace'; ctx.fillStyle='rgba(255,255,255,0.92)';
+        const dLines = wrapLines(it.desc + ' ' + it.price + ' CC', 520);
+        dLines.slice(0,5).forEach(function(ln,i){ ctx.fillText(ln, 60, 150 + i*22); });
+        // owned/afford hint
+        const owned = it.owned(); const afford = ccTotal() >= it.price;
+        if (owned){ ctx.fillStyle='#8f8'; ctx.font='700 18px Tomorrow,monospace'; ctx.fillText('OWNED', 60, 270); }
+        else if (!afford){ ctx.fillStyle='#f88'; ctx.font='700 18px Tomorrow,monospace'; ctx.fillText('NEED '+(it.price-ccTotal())+' CC', 60, 270); }
+        // square on right
+        const SQX=640, SQY=108, SQS=340;
+        ctx.strokeStyle='#fff'; ctx.lineWidth=4; ctx.strokeRect(SQX, SQY, SQS, SQS);
+        // inner fill subtle
+        ctx.fillStyle='rgba(255,255,255,0.04)'; ctx.fillRect(SQX, SQY, SQS, SQS);
+        const mdl = it.getModel();
+        if (mdl){
+          ensurePreview();
+          if (!previewMesh || previewMesh.userData.shopId !== it.id) { setPreviewModel(mdl); if(previewMesh) previewMesh.userData.shopId = it.id; }
+          try{ previewR.clear(); previewR.render(previewScene, previewCam); ctx.drawImage(previewCv, SQX+6, SQY+6, SQS-12, SQS-12); }catch(e){}
+        } else {
+          // ponytail: clear old spinning mesh so battery doesn't show previous gun ghost
+          if (previewMesh && previewScene) { previewScene.remove(previewMesh); previewMesh = null; }
+          if (previewR) try{ previewR.clear(); previewCv.getContext('2d').clearRect(0,0,512,512); }catch(e){}
+          ctx.fillStyle='#fff'; ctx.font='500 22px Tomorrow,monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(it.id==='bat' ? 'BATTERY' : 'NO PREVIEW', SQX+SQS/2, SQY+SQS/2);
+          ctx.textAlign='left';
+        }
+        const buyLabel = owned ? 'OWNED' : 'BUY '+it.price+' CC';
+        const dimBuy = owned || !afford;
+        panelBtn(menuBtns, 60, 452, 200, 44, buyLabel, dimBuy ? null : function(){ it.buy(); drawMenu(); }, dimBuy, 18);
+        panelBtn(menuBtns, 280, 452, 200, 44, 'BACK', function(){ shopSelected=null; drawMenu(); }, false, 18);
+      } else {
+        const COLS=3, CELL_W=280, CELL_H=88, GAP=24, OX=60, OY=108;
+        catalog.forEach(function(it, idx){
+          const col=idx%COLS, row=Math.floor(idx/COLS);
+          const x=OX+col*(CELL_W+GAP), y=OY+row*(CELL_H+GAP);
+          const owned=it.owned(); const afford=ccTotal()>=it.price;
+          // cell box is drawn by panelBtn (strokeRect)
+          const label = owned ? it.title+' ✓' : it.title;
+          // dim owned slightly
+          panelBtn(menuBtns, x, y, CELL_W, CELL_H, label, function(id){ return function(){ shopSelected=id; drawMenu(); }; }(it.id), false, 18);
+          // price sublabel drawn inside cell footer
+          ctx.fillStyle = owned ? '#8f8' : (afford ? '#fff' : '#f88');
+          ctx.font='600 16px Tomorrow,monospace'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+          ctx.fillText(owned ? 'OWNED' : it.price+' CC', x+CELL_W/2, y+CELL_H-10);
+          ctx.textAlign='left';
+        });
+        panelBtn(menuBtns, 60, 452, 380, 44, 'BACK', function() { view = 'loadout'; drawMenu(); });
+      }
     } else if (view === 'loadout') {
 
       ctx.fillStyle = '#fff';
@@ -402,7 +480,8 @@ function drawMenu() {
         y += 56;
       }
       panelRow(menuBtns, y, '5  HP BOX ×' + boxCount(), []);
-      panelBtn(menuBtns, 60, 452, 200, 44, 'SHOP', function() { view = 'shop'; drawMenu(); }, false, 20);
+      panelRow(menuBtns, y + 56, '6  RC CAR ' + (rcOwned() ? '×' + rcMaxUses() + ' /MAP' : '(buy in SHOP)'), []);
+      panelBtn(menuBtns, 60, 452, 200, 44, 'SHOP', function() { view = 'shop'; shopSelected=null; drawMenu(); }, false, 20);
       panelBtn(menuBtns, 280, 452, 200, 44, 'BACK', function() { view = 'hub'; drawMenu(); }, false, 20);
     } else if (view === 'custom') {
       panelBtn(menuBtns, 60, 150, 380, 56, 'UPLOAD MAP (.umm)', function() { fileInput.click(); }, false, 22);
@@ -987,6 +1066,12 @@ window.addEventListener('wheel', function(e) {
     drawMenu();
     return;
   }
+  if (S.hub && view === 'shop' && shopSelected) {
+    // detail has no scroll; wheel zooms
+  } else if (S.hub && view === 'shop') {
+    // grid fits no scroll
+    return;
+  }
   hubZoom = THREE.MathUtils.clamp(hubZoom - e.deltaY * 0.0012, 0, 1);
   camera.fov = 70 - hubZoom * 38;
   camera.updateProjectionMatrix();
@@ -995,6 +1080,17 @@ window.addEventListener('wheel', function(e) {
 
 (function tickHover() {
   requestAnimationFrame(tickHover);
+  // ponytail: spin shop preview — clear square first so transparent pixels don't ghost
+  if (view === 'shop' && shopSelected && previewMesh && previewR) {
+    previewMesh.rotation.y += 0.018;
+    try {
+      previewR.clear(); previewR.render(previewScene, previewCam);
+      ctx.clearRect(646, 114, 328, 328);
+      ctx.fillStyle='rgba(255,255,255,0.04)'; ctx.fillRect(646, 114, 328, 328);
+      ctx.drawImage(previewCv, 646, 114, 328, 328);
+      tex.needsUpdate = true;
+    } catch(e){}
+  }
 
   if (!loaderDone && S.worldReady && S.pendingLoads === 0 && loaderText.textContent !== 'CLICK TO LOCK MOUSE') {
     loaderText.textContent = 'CLICK TO LOCK MOUSE';

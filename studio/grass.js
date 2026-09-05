@@ -439,16 +439,8 @@ function _setupGrass() {
   if (img.complete && img.width) { tex.image = img; tex.needsUpdate = true; }
   else img.onload = function() { tex.image = img; tex.needsUpdate = true; };
 
-  const uk = +(g.unlit ?? 0) || 0;
-  const mat = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: uk });
-  if (uk > 0) mat.color.setScalar(Math.max(0, 1 - uk));
-
-  mat.onBeforeCompile = function(sh) {
-    sh.fragmentShader = sh.fragmentShader
-      .split('( gl_FrontFacing ) ? vLightFront : vLightBack').join('vLightFront')
-      .split('( gl_FrontFacing ) ? vIndirectFront : vIndirectBack').join('vIndirectFront');
-  };
-  mat.customProgramCacheKey = function() { return 'grass-frontlit'; };
+  // ponytail: unlit so both sides same brightness (no directional shading)
+  const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 });
   _geo = new THREE.BufferGeometry();
   grassMesh = new THREE.Mesh(_geo, mat);
   _live = true;

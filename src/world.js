@@ -9,6 +9,7 @@ import { setTurretMapReady } from './turret.js';
 import { setDroneMapReady } from './drone.js';
 import { setBossMapReady } from './boss.js';
 import { setCarMapReady } from './car.js';
+import { setRcMapReady } from './rc.js';
 import { setFogSlider } from './core.js';
 const ambient = new THREE.AmbientLight(0x403030, 0.5);
 scene.add(ambient);
@@ -25,6 +26,7 @@ scene.add(hemi);
 export function applyNight(on, mid) {
   const m = !!mid, n = m || !!on;
   nightOn = n;
+  midnightOn = m;
   ambient.intensity = m ? 0.04 : n ? 0.15 : 0.5;
   ambient.color.setHex(m ? 0x101828 : n ? 0x223044 : 0x403030);
   moon.intensity = m ? 0.06 : n ? 0.25 : 1.1;
@@ -44,6 +46,11 @@ export function applyNight(on, mid) {
   if (paintMesh) {
     paintMesh.material.dispose();
     paintMesh.material = paintMaterial();
+  }
+  // ponytail: keep grass unlit (no directional half-dark) but dim+tint at night to match Lambert ground (~0.26 night, ~0.06 midnight)
+  if (grassChunks && grassChunks.length) {
+    const gc = m ? [0.06, 0.07, 0.09] : n ? [0.21, 0.24, 0.30] : [1, 1, 1];
+    grassChunks.forEach(function(c) { c.mesh.material.color.setRGB(gc[0], gc[1], gc[2]); c.mesh.material.needsUpdate = true; });
   }
 }
 
@@ -602,6 +609,7 @@ loadProto('tankhead.gltf', function(s) { turretModel = s; attachTurret(); });
 const SUN_DIST = 130, SUN_SCALE = 12;
 let sunMesh = null;
 let nightOn = false;
+let midnightOn = false;
 loader.load('assets/models/sun.gltf', function(gltf) {
   sunMesh = gltf.scene;
   sunMesh.traverse(function(o) {
@@ -722,15 +730,11 @@ function buildGrass() {
   let img = texCache[g.tex];
   if (img) { tex.image = img; tex.needsUpdate = true; }
   else { img = new Image(); img.onload = function() { tex.image = img; tex.needsUpdate = true; }; img.src = g.tex; texCache[g.tex] = img; }
-  const uk = +(g.unlit ?? 0) || 0;
-  const baseMat = new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: uk });
-  if (uk > 0) baseMat.color.setScalar(Math.max(0, 1 - uk));
-  baseMat.onBeforeCompile = function(sh) {
-    sh.fragmentShader = sh.fragmentShader
-      .split('( gl_FrontFacing ) ? vLightFront : vLightBack').join('vLightFront')
-      .split('( gl_FrontFacing ) ? vIndirectFront : vIndirectBack').join('vIndirectFront');
-  };
-  baseMat.customProgramCacheKey = function() { return 'grass-frontlit'; };
+  // ponytail: unlit so both sides same brightness (no moon-direction shading), dim+tint at night
+  const baseMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 });
+  if (midnightOn) baseMat.color.setRGB(0.06, 0.07, 0.09);
+  else if (nightOn) baseMat.color.setRGB(0.21, 0.24, 0.30);
+  else baseMat.color.setRGB(1, 1, 1);
   const entries = Array.from(byChunk.entries());
   const async = g.pts.length > 4000;
   let ei = 0;
@@ -1017,6 +1021,7 @@ export function applyMap(j) {
   setDroneMapReady();
   setBossMapReady();
   setCarMapReady();
+  setRcMapReady();
   syncHub();
   S.worldReady = true;
 }

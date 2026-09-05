@@ -63,10 +63,10 @@ export const WEAPONS = [
   { key: 'Digit2', name: 'PS8', RPM: 55,  MAG: 8,  RELOAD: 4.15,  kick: 8, kickY: 5, kickback: 0.38, kickRot: 0.45, pellets: 6, spread: 0.1,  pump: true,  ammo: 8,  dmg: 12, pvp: 6, full: null, empty: null, sound: shutShot, drop: 1.0, bash: 55 },
   { key: 'Digit3', name: 'NB-1',  RPM: 40,  MAG: 5,  RELOAD: 1.123,  kick: 14, kickY: 9, kickback: 0.6,  kickRot: 0.9,  pellets: 1, spread: 0.0,  pump: true,  ammo: 5,  dmg: 150, pvp: 23, full: null, empty: null, sound: sniperShot, drop: 0.5, bash: 70, closeScale: 0.23, closeRange: 20 },
   { key: 'Digit4', name: 'Eagle', RPM: 90,  MAG: 7,  RELOAD: 2.0,   kick: 16, kickY: 3, kickback: 0.4,  kickRot: 1.0,  pellets: 1, spread: 0.002, pump: true,  ammo: 7,  dmg: 65, pvp: 18, full: null, empty: null, sound: eagleShot, drop: 1.8, bash: 40 },
-  { name: 'Golden Eagle', RPM: 90,  MAG: 7,  RELOAD: 2.0,   kick: 16, kickY: 3, kickback: 0.4,  kickRot: 1.0,  pellets: 1, spread: 0.002, pump: true,  ammo: 7,  dmg: 130, pvp: 36, full: null, empty: null, sound: eagleShot, price: 5000, drop: 1.8, bash: 40 },
-  { name: 'AK-47',      RPM: 600, MAG: 30, RELOAD: 2.5,   kick: 3, kickY: 1.5, kickback: 0.18, kickRot: 0.4,  pellets: 1, spread: 0.01,  pump: false, ammo: 30, dmg: 15, pvp: 8, full: null, empty: null, sound: stenShot, price: 450, scale: 1.2, drop: 0.6, bash: 40 },
-  { name: 'WGS-25',     RPM: 750, MAG: 25, RELOAD: 0.9,   kick: 0.6, kickY: 0.8, kickback: 0.05, kickRot: 0.1,  pellets: 1, spread: 0.004, pump: false, ammo: 25, dmg: 3, pvp: 3, full: null, empty: null, sound: stenShot, price: 350, scale: 1.3, drop: 0.3, bash: 20 },
-  { name: 'CML-2',      RPM: 60,  MAG: 3,  RELOAD: 0,     kick: 0, kickY: 0, kickback: 0,    kickRot: 0,    pellets: 0, spread: 0,     pump: true,  ammo: 3,  dmg: 150, full: null, empty: null, sound: rocketShot, price: 430, scale: 0.68, drop: 0, bash: 40, missile: true, noReload: true, speedMul: 0.6, view: { pos: [-1.25, -0.55, -1.5], rot: [0.1, 0.35, -0.15] } },
+  { name: 'Golden Eagle', RPM: 90,  MAG: 7,  RELOAD: 2.0,   kick: 16, kickY: 3, kickback: 0.4,  kickRot: 1.0,  pellets: 1, spread: 0.002, pump: true,  ammo: 7,  dmg: 130, pvp: 36, full: null, empty: null, sound: eagleShot, price: 5000, drop: 1.8, bash: 40, desc: 'Golden Eagle. 90 RPM bolt 7 rounds. 130 dmg 36 pvp. Double the base Eagle.' },
+  { name: 'AK-47',      RPM: 600, MAG: 30, RELOAD: 2.5,   kick: 3, kickY: 1.5, kickback: 0.18, kickRot: 0.4,  pellets: 1, spread: 0.01,  pump: false, ammo: 30, dmg: 15, pvp: 8, full: null, empty: null, sound: stenShot, price: 450, scale: 1.2, drop: 0.6, bash: 40, desc: 'AK-47. 600 RPM full auto 30 rounds 2.5s reload. 15 dmg 8 pvp.' },
+  { name: 'WGS-25',     RPM: 750, MAG: 25, RELOAD: 0.9,   kick: 0.6, kickY: 0.8, kickback: 0.05, kickRot: 0.1,  pellets: 1, spread: 0.004, pump: false, ammo: 25, dmg: 3, pvp: 3, full: null, empty: null, sound: stenShot, price: 350, scale: 1.3, drop: 0.3, bash: 20, desc: 'WGS-25. 750 RPM 25 rounds 0.9s reload. 3 dmg. Light recoil. Hold to gain up to 30 percent speed over 20s.' },
+  { name: 'CML-2',      RPM: 60,  MAG: 3,  RELOAD: 0,     kick: 0, kickY: 0, kickback: 0,    kickRot: 0,    pellets: 0, spread: 0,     pump: true,  ammo: 3,  dmg: 150, full: null, empty: null, sound: rocketShot, price: 430, scale: 0.68, drop: 0, bash: 40, missile: true, noReload: true, speedMul: 0.6, view: { pos: [-1.25, -0.55, -1.5], rot: [0.1, 0.35, -0.15] }, desc: 'CML-2. 3 seeking rockets with a big blast. Turn on radar, hold the weapon and aim near a scanned enemy to lock. Fire and it chases that target. No reload and you move slower while carrying it.' },
 ];
 
 
@@ -148,6 +148,7 @@ function mountBox() {
   if (gm) gm.visible = false;
   boxModel.visible = true;
 }
+export function getBoxModel() { return boxModel; }
 function unmountBox() {
   const gm = getGunModel();
   if (gm) gm.visible = true;

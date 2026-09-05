@@ -7,16 +7,20 @@ import { toggleRadar } from './radar.js';
 import { flashDbg, menuActive, inSettingsView, requestGameLock, openPause, resumeGame } from './ui.js';
 import { bootActive, cheatUnlockAll } from './menu.js';
 import { tryEnterCar, isDriving, exitCar } from './car.js';
+import { rcActive, rcArmed, armRc, unarm, deployRc, detonateRc } from './rc.js';
 
 const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
 document.addEventListener('mousedown', function(e) {
   if (S.dead || S.won || S.hub || S.story || S.pvpLobby || isDriving()) return;
+  if (rcActive()) return;
+  if (rcArmed()) { deployRc(); return; }
   if (S.settings.laptop) return;
   if (e.button === 2) S.straf = true;
   if (e.button === 0 && S.isLocked) setFiring(true);
 });
 document.addEventListener('mouseup', function(e) {
   if (S.dead || S.won || S.hub || S.story || S.pvpLobby) return;
+  if (rcActive()) return;
   if (S.settings.laptop) return;
   if (e.button === 2 && !S.settings.strafLock && !S.supine) S.straf = false;
   if (e.button === 0) setFiring(false);
@@ -39,6 +43,7 @@ document.addEventListener('click', function(e) {
 
 document.addEventListener('mousemove', function(e) {
   if (!S.isLocked) return;
+  if (rcActive()) return;
 
 
   const menuState = menuActive() || S.won || S.hub || S.pvpLobby;
@@ -70,15 +75,18 @@ document.addEventListener('mousemove', function(e) {
 document.addEventListener('keydown', function(e) {
   if (S.story) return;
   S.keys[e.code] = true;
-  if (e.code === 'KeyF' && !e.repeat) { if (isDriving()) exitCar(); else tryEnterCar(); }
+  if (rcActive()) {
+    if (e.code === 'Space' && !e.repeat) detonateRc();
+    return;
+  }
+  if (e.code === 'KeyF' && !e.repeat) { unarm(); if (isDriving()) exitCar(); else tryEnterCar(); }
   if (e.code === 'KeyC' && !e.repeat && !isDriving()) S.prone = !S.prone;
   if (e.code === 'KeyT' && !e.repeat) tryBash();
-  if (e.code === 'KeyG' && !e.repeat && !usingBox && !isDriving()) throwGrenade();
-  if (e.code === 'KeyR' && !e.repeat) startReload();
+  if (e.code === 'KeyG' && !e.repeat && !usingBox && !isDriving()) throwGrenade();  if (e.code === 'KeyR' && !e.repeat) startReload();
   if (e.code === 'KeyX' && !e.repeat) S.ads = !S.ads;
   if (e.code === 'KeyI' && !e.repeat) S.inspect = !S.inspect;
-  if (S.settings.laptop && e.code === 'KeyQ' && !e.repeat && !isDriving()) S.straf = true;
-  if (S.settings.laptop && e.code === 'KeyE' && !e.repeat && S.isLocked && !isDriving()) setFiring(true);
+  if (S.settings.laptop && e.code === 'KeyQ' && !e.repeat && !isDriving() && !rcArmed()) S.straf = true;
+  if (S.settings.laptop && e.code === 'KeyE' && !e.repeat && S.isLocked && !isDriving() && !rcArmed()) setFiring(true);
   if (e.code === 'KeyY' && !e.repeat) toggleTrace();
   if (e.code === 'KeyV' && !e.repeat) toggleRadar();
   if (e.code === 'KeyY' && !e.repeat && FLASH_DEBUG) {
@@ -103,7 +111,11 @@ document.addEventListener('keydown', function(e) {
       setTimeout(function() { flashDbg.textContent = ''; }, 1200);
     });
   }
-  if (!e.repeat && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4' || e.code === 'Digit5')) switchWeapon(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code));
+  if (!e.repeat && e.code === 'Digit6') { const wasArmed = rcArmed(); armRc(); if (!wasArmed && rcArmed()) setFiring(false); return; }
+  if (!e.repeat && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4' || e.code === 'Digit5')) {
+    if (rcArmed()) unarm();
+    switchWeapon(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code));
+  }
 
 
   if (e.code === 'Escape' && !e.repeat && !S.isLocked && !IS_HUDEDIT) openPause();

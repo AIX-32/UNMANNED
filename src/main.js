@@ -15,6 +15,7 @@ import { updateIdent } from './ident.js';
 import { updateRadar } from './radar.js';
 import { updatePvp } from './pvp.js';
 import { updateCars, isDriving, exitCar } from './car.js';
+import { updateRc, rcActive, rcHud } from './rc.js';
 import './signalling.js';
 import './input.js';
 import { showWin, updateHubIntro, updateStoryCutscene } from './menu.js';
@@ -490,8 +491,9 @@ function updateViewmodel(dt, now, isMoving) {
 
 function playTick(dt, now) {
   const wasDriving = isDriving();
-  if (wasDriving) gunScene.visible = false; else gunScene.visible = true;
-  const isMoving = wasDriving ? false : updatePlayer(dt);
+  const wasRc = rcActive();
+  if (wasDriving || wasRc) gunScene.visible = false; else gunScene.visible = true;
+  const isMoving = (wasDriving || wasRc) ? false : updatePlayer(dt);
   updateTriggers();
   updateSubtitle();
 
@@ -505,7 +507,7 @@ function playTick(dt, now) {
   updateBoxUse(dt);
   const bu = boxUseInfo();
   if (bu) updateBoxBar(bu.frac, bu.secs); else hideBoxBar();
-  updateAmmoUI(hudInfo());
+  updateAmmoUI(rcHud() || hudInfo());
   updateHpUI();
   updateCcUI();
   updateRadarUI();
@@ -552,6 +554,7 @@ function playTick(dt, now) {
   updateCml(dt, now, curWeaponName() === 'CML-2');
   if (S.pvp) updatePvp(dt, now);
   updateCars(dt, now);
+  updateRc(dt, now);
 
 
   S.caKick *= Math.pow(0.02, dt);
