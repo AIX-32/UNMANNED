@@ -69,6 +69,7 @@ export const WEAPONS = [
   { name: 'WGS-25',     RPM: 750, MAG: 25, RELOAD: 0.9,   kick: 0.6, kickY: 0.8, kickback: 0.05, kickRot: 0.1,  pellets: 1, spread: 0.004, pump: false, ammo: 25, dmg: 3, pvp: 3, full: null, empty: null, sound: stenShot, price: 350, scale: 1.3, drop: 0.3, bash: 20, desc: 'WGS-25. 750 RPM 25 rounds 0.9s reload. 3 dmg. Light recoil. Hold to gain up to 30 percent speed over 20s.' },
   { name: 'CML-2',      RPM: 60,  MAG: 3,  RELOAD: 0,     kick: 0, kickY: 0, kickback: 0,    kickRot: 0,    pellets: 0, spread: 0,     pump: true,  ammo: 3,  dmg: 150, full: null, empty: null, sound: rocketShot, price: 430, scale: 0.68, drop: 0, bash: 40, missile: true, noReload: true, speedMul: 0.6, view: { pos: [-1.25, -0.55, -1.5], rot: [0.1, 0.35, -0.15] }, desc: 'CML-2. 3 seeking rockets with a big blast. Turn on radar, hold the weapon and aim near a scanned enemy to lock. Fire and it chases that target. No reload and you move slower while carrying it.' },
   { name: 'Mortar',     RPM: 20,  MAG: 1,  RELOAD: 3.5,   kick: 2, kickY: 1, kickback: 0.2,  kickRot: 0.3,  pellets: 0, spread: 0,     pump: true,  ammo: 1,  dmg: 180, full: null, empty: null, sound: mortarShot, price: 650, scale: 1.0, drop: 0, bash: 40, mortar: true, view: { pos: [-0.9, -0.7, -1.6], rot: [0.05, 0.15, 0] }, desc: 'Mortar. Plants you in place. WASD moves the strike. Fires a high arc shell that explodes where the outline lands. 1 round 3.5s reload.' },
+  { name: 'Bonics',     RPM: 60,  MAG: 0,  RELOAD: 0,     kick: 0, kickY: 0, kickback: 0,    kickRot: 0,    pellets: 0, spread: 0,     pump: false, ammo: 0,  dmg: 0, full: null, empty: null, sound: function(){}, price: 300, scale: 1.0, drop: 0, bash: 25, binoc: true, noReload: true, noAmmo: true, view: { pos: [-0.35, -0.45, -0.9], rot: [0, 0, 0] }, desc: 'Bonics binoculars. Put in a gun slot to zoom. Hold RMB or press X to look through. No shooting, just eyes.' },
 ];
 
 
@@ -252,11 +253,75 @@ loader.load('assets/models/mortar.gltf', function(gltf) {
   fixGun(WEAPONS[8].full);
   if (curW === 8) mountGun(WEAPONS[8].full);
 });
+loader.load('assets/models/bonics.gltf', function(gltf) {
+  const g = new THREE.Group();
+  g.add(gltf.scene);
+  // bonics is tiny Blockbench 0.25 units, scale up — halved per request
+  g.scale.setScalar(0.6);
+  WEAPONS[9].full = g;
+  fixGun(WEAPONS[9].full);
+  if (curW === 9) mountGun(WEAPONS[9].full);
+});
 
 let curW = Math.max(0, WEAPONS.findIndex(function(w) { return w.name === getLoadout()[0]; }));
 export function curWeaponName() { return WEAPONS[curW].name; }
 S.curGunName = function() { return WEAPONS[curW].name; };
 let ammo = WEAPONS[curW].MAG;
+
+// ponytail: Bonics — binoculars as gun, zoom overlay + raise anim
+let bonicsRaise = 0;
+let bonicsOverlay = null, bonicsCv = null, bonicsCtx = null, bonicsTrkEl = null;
+function ensureBonicsOverlay(){
+  if(bonicsOverlay) return;
+  bonicsCv = document.createElement('canvas');
+  bonicsCtx = bonicsCv.getContext('2d');
+  bonicsOverlay = document.createElement('div');
+  bonicsOverlay.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:14;display:none;';
+  bonicsCv.style.cssText='width:100%;height:100%;display:block;';
+  bonicsOverlay.appendChild(bonicsCv);
+  bonicsTrkEl = document.createElement('div');
+  bonicsTrkEl.style.cssText='position:absolute;left:50%;top:8%;transform:translateX(-50%);color:#fff;font:900 22px Tomorrow,monospace;letter-spacing:0.12em;text-shadow:0 0 6px #000;white-space:nowrap;pointer-events:none;';
+  bonicsOverlay.appendChild(bonicsTrkEl);
+  function redraw(){
+    const w=window.innerWidth,h=window.innerHeight;
+    bonicsCv.width=w; bonicsCv.height=h;
+    const ctx=bonicsCtx;
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,w,h);
+    ctx.globalCompositeOperation='destination-out';
+    const r=Math.min(w,h)*0.42;
+    const s=r*2;
+    const cx1=w*0.5 - r*0.92, cx2=w*0.5 + r*0.92, cy=h*0.5;
+    ctx.fillRect(cx1 - r, cy - r, s, s);
+    ctx.fillRect(cx2 - r, cy - r, s, s);
+    ctx.globalCompositeOperation='source-over';
+  }
+  window.addEventListener('resize', redraw);
+  redraw();
+  document.body.appendChild(bonicsOverlay);
+}
+export function isBonicsActive(){ return WEAPONS[curW] && WEAPONS[curW].binoc; }
+export function bonicsRaiseK(){ return bonicsRaise; }
+export function isBonicsZoomed(){ return bonicsRaise > 0.88; }
+export function updateBonics(dt){
+  const want = isBonicsActive() && (S.straf || S.ads) ? 1 : 0;
+  const k = Math.min(1, dt*7);
+  bonicsRaise += (want - bonicsRaise) * k;
+  if(bonicsRaise > 1) bonicsRaise=1; if(bonicsRaise<0) bonicsRaise=0;
+  ensureBonicsOverlay();
+  if(bonicsOverlay){
+    const vis = bonicsRaise > 0.88;
+    bonicsOverlay.style.display = vis ? 'block' : 'none';
+    bonicsOverlay.style.opacity = vis ? String(Math.min(1, (bonicsRaise-0.88)/0.12)) : '0';
+  }
+  if(bonicsTrkEl) bonicsTrkEl.style.display='none';
+  // ponytail: hide bonics model when zoomed — overlay has squares, don't see model through holes
+  try{
+    const gm = getGunModel();
+    if(gm && isBonicsActive()){
+      gm.visible = !isBonicsZoomed();
+    }
+  }catch(e){}
+}
 let holdT = 0;
 let reloading = false, reloadT = 0;
 let firing = false, nextShot = 0, fireHeld = 0, wasFiring = false;
@@ -396,6 +461,7 @@ export function hudInfo() {
     return 'HP BOX ×' + n + (boxUsing && n > 0 ? '  ' + Math.ceil(BOX_USE - boxUseT) + 's' : '');
   }
   const w = WEAPONS[curW];
+  if(w.binoc) return 'BONICS' + ( (S.straf||S.ads) ? '  ZOOM' : '' );
   const label = w.name === 'Golden Eagle' ? 'GE' : w.name;
   return label + '  │  ' + ammo;
 }
@@ -428,6 +494,7 @@ export function reloadK() {
   const w = WEAPONS[curW];
   return reloading ? Math.sin(Math.min(reloadT / w.RELOAD, 1) * Math.PI) : 0;
 }
+export function isReloading(){ return reloading; }
 
 
 
@@ -442,6 +509,7 @@ export const FLASH = {
   'WGS-25': { pos: [-0.71, 0.74, -2.9], size: 2.353 },
   'CML-2': { pos: [-0.98, 1.51, -3.09], size: 3.5 },
   Mortar: { pos: [0, 0.9, -1.2], size: 4.0 },
+  Bonics: { pos: [0, 0.5, -0.8], size: 0 },
 };
 export const FLASH_DEBUG = false;
 
@@ -457,6 +525,7 @@ export function getMuzzleFlash() { return muzzleFlash; }
 
 const _flashQ = new THREE.Quaternion();
 export function flashSync(F) {
+  if(!F || !F.pos) return;
   const sc = GUN_SCALE * (WEAPONS[curW].scale || 1);
   const vr = viewRot();
   _flashQ.setFromEuler(new THREE.Euler(vr ? vr[0] : GUN_ROT.x, vr ? vr[1] : GUN_ROT.y, vr ? vr[2] : GUN_ROT.z)).invert();
@@ -501,6 +570,7 @@ export function updateLandingMarker() {
 
 function shoot() {
   const w = WEAPONS[curW];
+  if(w.binoc) return;
 
   const ramp = 1 + Math.min(fireHeld * 1.8, 2.5);
 
@@ -546,6 +616,7 @@ function shoot() {
     // w.sound() already played above, no double
     return;
   }
+  if (w.binoc) return;
 
 
 
@@ -684,6 +755,7 @@ function shotScaleAt(t, w) {
   return w.closeScale + (1 - w.closeScale) * THREE.MathUtils.clamp(t / w.closeRange, 0, 1);
 }
 function castShoot(origin, dir, drop) {
+  _rc.camera = camera;
   _rc.set(origin, dir);
   _targets.length = 0;
   for (let i = 0; i < scene.children.length; i++) {
@@ -758,16 +830,18 @@ export function updateFiring(dt, now) {
       if (w.full) mountGun(w.full);
     }
   }
-  if (firing && S.isLocked && !reloading && bashT > BASH_COOLDOWN && ammo > 0 && now >= nextShot && !(w.pump && wasFiring) && !S.inspect && !usingBox) {
+  // ponytail: mortar fires while deck is up (mouse unlocked) — no S.isLocked gate for mortar
+  const _mortarCanFire = w.mortar && curWeaponName() === 'Mortar';
+  if (firing && (S.isLocked || _mortarCanFire) && !reloading && bashT > BASH_COOLDOWN && ammo > 0 && now >= nextShot && !(w.pump && wasFiring) && !S.inspect && !usingBox) {
     shoot();
     ammo--; w.ammo = ammo;
     if (ammo <= 0 && !w.noReload) startReload();
     nextShot = now + 60 / w.RPM;
-  } else if (!reloading && firing && S.isLocked && ammo <= 0 && !w.noReload) {
+  } else if (!reloading && firing && (S.isLocked || _mortarCanFire) && ammo <= 0 && !w.noReload) {
     startReload();
   }
 
-  if (!firing && wasFiring && !w.pump) stenTail();
+  if (!firing && wasFiring && !w.pump && !w.binoc) stenTail();
   wasFiring = firing;
   if (firing) fireHeld += dt; else fireHeld = 0;
   holdT += dt;

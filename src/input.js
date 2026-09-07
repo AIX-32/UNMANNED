@@ -8,12 +8,14 @@ import { flashDbg, menuActive, inSettingsView, requestGameLock, openPause, resum
 import { bootActive, cheatUnlockAll } from './menu.js';
 import { tryEnterCar, isDriving, exitCar } from './car.js';
 import { rcActive, rcArmed, armRc, unarm, deployRc, detonateRc } from './rc.js';
+import { isMortarActive } from './mortar.js';
 
 const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
 document.addEventListener('mousedown', function(e) {
   if (S.photo || S.dead || S.won || S.hub || S.story || S.pvpLobby || isDriving()) return;
   if (rcActive()) return;
   if (rcArmed()) { deployRc(); return; }
+  if (isMortarActive()) return;
   if (S.settings.laptop) return;
   if (e.button === 2) S.straf = true;
   if (e.button === 0 && S.isLocked) setFiring(true);
@@ -21,6 +23,7 @@ document.addEventListener('mousedown', function(e) {
 document.addEventListener('mouseup', function(e) {
   if (S.dead || S.won || S.hub || S.story || S.pvpLobby) return;
   if (rcActive()) return;
+  if (isMortarActive()) return;
   if (S.settings.laptop) return;
   if (e.button === 2 && !S.settings.strafLock && !S.supine) S.straf = false;
   if (e.button === 0) setFiring(false);
@@ -37,6 +40,7 @@ document.addEventListener('wheel', function(e) {
 
 document.addEventListener('click', function(e) {
   if (S.photo || S.dead || S.won || S.hub || S.story || S.pvpLobby) return;
+  if (isMortarActive()) return;
   if (menuActive()) return;
   if (bootActive()) return;
   requestGameLock();
@@ -77,14 +81,28 @@ document.addEventListener('keydown', function(e) {
   if (S.story) return;
   S.keys[e.code] = true;
   if (S.photo) return;
+  if (isMortarActive() && e.code === 'Space' && !e.repeat){
+    setFiring(true);
+    e.preventDefault();
+    return;
+  }
   if (rcActive()) {
     if (e.code === 'Space' && !e.repeat) detonateRc();
     return;
   }
   if (e.code === 'KeyF' && !e.repeat) { unarm(); if (isDriving()) exitCar(); else tryEnterCar(); }
-  if (e.code === 'KeyC' && !e.repeat && !isDriving()) S.prone = !S.prone;
-  if (e.code === 'KeyT' && !e.repeat) tryBash();
-  if (e.code === 'KeyG' && !e.repeat && !usingBox && !isDriving()) throwGrenade();  if (e.code === 'KeyR' && !e.repeat) startReload();
+  if (e.code === 'KeyC' && !e.repeat && !isDriving()) {
+    if (isMortarActive()) return;
+    S.prone = !S.prone;
+  }
+  if (e.code === 'KeyT' && !e.repeat) {
+    if (isMortarActive()) return;
+    tryBash();
+  }
+  if (e.code === 'KeyG' && !e.repeat && !usingBox && !isDriving()) throwGrenade();  if (e.code === 'KeyR' && !e.repeat) {
+    if (isMortarActive()) return;
+    startReload();
+  }
   if (e.code === 'KeyX' && !e.repeat) S.ads = !S.ads;
   if (e.code === 'KeyI' && !e.repeat) S.inspect = !S.inspect;
   if (S.settings.laptop && e.code === 'KeyQ' && !e.repeat && !isDriving() && !rcArmed()) S.straf = true;
@@ -133,6 +151,7 @@ document.addEventListener('keydown', function(e) {
   if (e.code === 'KeyH' && !e.repeat && inSettingsView()) cheatUnlockAll();
 });
 document.addEventListener('keyup', function(e) {
+  if (e.code === 'Space' && isMortarActive()){ setFiring(false); }
   if (S.settings.laptop && e.code === 'KeyQ' && !S.settings.strafLock) S.straf = false;
   if (S.settings.laptop && e.code === 'KeyE') setFiring(false);
   S.keys[e.code] = false;

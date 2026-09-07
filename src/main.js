@@ -17,6 +17,7 @@ import { updatePvp } from './pvp.js';
 import { updateCars, isDriving, exitCar } from './car.js';
 import { updateRc, rcActive, rcHud } from './rc.js';
 import { updateMortar, isMortarActive, mortarBlocksMove, mortarHud } from './mortar.js';
+import { updateBonics, bonicsRaiseK, isBonicsZoomed, isBonicsActive } from './weapons.js';
 import { updatePhoto } from './photo.js';
 import './signalling.js';
 import './input.js';
@@ -302,7 +303,64 @@ function updatePlayer(dt) {
 }
 
 function updateCameraRig(dt) {
-
+  // ponytail: bonics zoom — lerp FOV with raise (much stronger)
+  if(isBonicsActive()){
+    const br = bonicsRaiseK();
+    let zoomT = S.BASE_FOV - 62 * br;
+    if (S.prone) zoomT -= 5 * (1-br);
+    S.zoomCur += (zoomT - S.zoomCur) * Math.min(1, dt * 10);
+    const sprintPunch = sprintT * 3 * (1-br);
+    camera.fov = S.zoomCur + (S.straf ? 0 : S.fovPunch) * (1-br*0.9) + sprintPunch;
+    camera.updateProjectionMatrix();
+    // keep rest of aim handling but skip normal zoom calc
+    S.recoil.x = THREE.MathUtils.lerp(S.recoil.x, S.recoilT.x, Math.min(1, dt * 18));
+    S.recoil.y = THREE.MathUtils.lerp(S.recoil.y, S.recoilT.y, Math.min(1, dt * 18));
+    if (S.straf) {
+      S.recoilT.x += (0 - S.recoilT.x) * Math.min(1, dt * 6);
+      S.recoilT.y += (0 - S.recoilT.y) * Math.min(1, dt * 6);
+    }
+    if (S.supine) {
+      let dy = S.euler.y - supineYaw;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      if (dy > SUPINE_YAW_RANGE) S.euler.y = supineYaw + SUPINE_YAW_RANGE;
+      else if (dy < -SUPINE_YAW_RANGE) S.euler.y = supineYaw - SUPINE_YAW_RANGE;
+    }
+    const aimEuler2 = _aimEuler.copy(S.euler);
+    const kickShare2 = S.straf ? STRAF_CAM_SHARE : 1;
+    aimEuler2.x = THREE.MathUtils.clamp(aimEuler2.x + S.recoil.x * kickShare2 + (S.straf ? 0 : S.shakeX)*(1-br), -Math.PI / 2.2, S.supine ? Math.PI * 0.62 : Math.PI / 2.2);
+    aimEuler2.y += S.recoil.y * kickShare2 + (S.straf ? 0 : S.shakeY)*(1-br);
+    camera.quaternion.setFromEuler(aimEuler2);
+    S.shakeX *= Math.pow(0.0004, dt); S.shakeY *= Math.pow(0.0004, dt);
+    S.fovPunch = THREE.MathUtils.lerp(S.fovPunch, 0, Math.min(1, dt * 8));
+    const aimK2 = Math.min(1, dt * (S.straf ? (S.settings.strafLock ? 20 : 14) : 6));
+    S.aimErr.x += (S.aimErrT.x - S.aimErr.x) * aimK2;
+    S.aimErr.y += (S.aimErrT.y - S.aimErr.y) * aimK2;
+    if (S.straf && !S.ads) {
+      const s = Math.min(1, dt * 1.1);
+      S.euler.y += S.aimErr.x * s;
+      S.euler.x = THREE.MathUtils.clamp(S.euler.x + S.aimErr.y * s, -Math.PI / 2.2, S.supine ? Math.PI * 0.62 : Math.PI / 2.2);
+      S.aimErrT.x -= S.aimErr.x * s;
+      S.aimErrT.y -= S.aimErr.y * s;
+    }
+    adsBlend += ((S.ads ? 1 : 0) - adsBlend) * Math.min(1, dt * 10);
+    if (S.ads) {
+      S.aimErrT.set(0, 0);
+      S.aimShift += (0 - S.aimShift) * Math.min(1, dt * 12);
+    }
+    const fwd2 = _tV.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    wallRay.set(camera.position, fwd2);
+    wallRay.far = 3;
+    wallRay.camera = camera;
+    const wh2 = wallRay.intersectObjects(scene.children, true);
+    let nearest2 = 1.3;
+    for (let i = 0; i < wh2.length; i++) {
+      if (inGun(wh2[i].object) || wh2[i].object.userData.ground || wh2[i].object.userData.isMortarBoard) continue;
+      nearest2 = wh2[i].distance; break;
+    }
+    S.wallProx += (THREE.MathUtils.clamp((1.3 - nearest2) / 0.7, 0, 1) - S.wallProx) * Math.min(1, dt * 10);
+    return;
+  }
   S.recoil.x = THREE.MathUtils.lerp(S.recoil.x, S.recoilT.x, Math.min(1, dt * 18));
   S.recoil.y = THREE.MathUtils.lerp(S.recoil.y, S.recoilT.y, Math.min(1, dt * 18));
   if (S.straf) {
@@ -360,10 +418,11 @@ function updateCameraRig(dt) {
   const fwd = _tV.set(0, 0, -1).applyQuaternion(camera.quaternion);
   wallRay.set(camera.position, fwd);
   wallRay.far = 3;
+  wallRay.camera = camera;
   const wh = wallRay.intersectObjects(scene.children, true);
   let nearest = 1.3;
   for (let i = 0; i < wh.length; i++) {
-    if (inGun(wh[i].object) || wh[i].object.userData.ground) continue;
+    if (inGun(wh[i].object) || wh[i].object.userData.ground || wh[i].object.userData.isMortarBoard) continue;
     nearest = wh[i].distance; break;
   }
   S.wallProx += (THREE.MathUtils.clamp((1.3 - nearest) / 0.7, 0, 1) - S.wallProx) * Math.min(1, dt * 10);
@@ -479,6 +538,17 @@ function updateViewmodel(dt, now, isMoving) {
     pz -= bThr * 1.4;
     py -= bThr * 0.35;
   }
+  // ponytail: Bonics raise — hands to eyes, then overlay takes over
+  if(isBonicsActive()){
+    const br = bonicsRaiseK();
+    // raise from hands to directly in front of eyes
+    px = THREE.MathUtils.lerp(px, 0.02, br);
+    py = THREE.MathUtils.lerp(py, -0.12, br);
+    pz = THREE.MathUtils.lerp(pz, -0.32, br);
+    rx = THREE.MathUtils.lerp(rx, -0.02, br);
+    ry = THREE.MathUtils.lerp(ry, 0, br);
+    rz = THREE.MathUtils.lerp(rz, 0, br);
+  }
   gunModel.position.set(px, py, pz);
   gunModel.rotation.set(rx, ry, rz);
   boxDip(sk);
@@ -502,6 +572,7 @@ function updateViewmodel(dt, now, isMoving) {
 
 function playTick(dt, now) {
   updateMortar(dt);
+  updateBonics(dt);
   const wasDriving = isDriving();
   const wasRc = rcActive();
   const mort = isMortarActive();
@@ -642,18 +713,18 @@ function animate() {
   }
 
   if (S.dead || (S.paused && !S.pvp) || (!S.pvp && !S.isLocked && S.everLocked)) {
-    if (S.paused) {
-      if (S.photo) {
-        updatePhoto(frameDt);
-      } else if (!(S.story && updateStoryCutscene(frameDt))) camera.quaternion.setFromEuler(S.euler);
-    } else if (S.dead && deathAnimating) {
-      updateDeathCam(frameDt);
-    } else if (S.dead && kcPhase > 0) {
-      updateKillCam(frameDt);
-    }
-    updateSubtitle();
-    if (!S.photo) decayCA(frameDt);
-    placeUIPanels(); renderFrame(now); return;
+      if (S.paused) {
+        if (S.photo) {
+          updatePhoto(frameDt);
+        } else if (!(S.story && updateStoryCutscene(frameDt))) camera.quaternion.setFromEuler(S.euler);
+      } else if (S.dead && deathAnimating) {
+        updateDeathCam(frameDt);
+      } else if (S.dead && kcPhase > 0) {
+        updateKillCam(frameDt);
+      }
+      updateSubtitle();
+      if (!S.photo) decayCA(frameDt);
+      placeUIPanels(); renderFrame(now); return;
   }
 
   const n = consumeTicks(frameDt);

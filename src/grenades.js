@@ -72,7 +72,7 @@ export function mortarBoomVisual(pos) {
   shockwaves.push({ pos: pos.clone(), t0: frameNow, dur: 0.25 });
 }
 export function explodeMortarAt(pos, playerDmg, noBroadcast) {
-  damageUgvSplash(pos, 320);
+  damageUgvSplash(pos, 320, true); // ponytail: mortar kill suppresses UGV death boom — mortarExplosion is the only sound
   if (playerDmg) {
     const d = camera.position.distanceTo(pos);
     if (d < 6) damagePlayer(Math.round(playerDmg * (1 - d / 6)), pos);

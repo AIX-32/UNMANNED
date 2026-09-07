@@ -270,7 +270,7 @@ export function ugvIdent(obj) {
   return { group: u.model, maxHp: UGV_HP, hp: function() { return u.hp; } };
 }
 
-export function damageUgv(obj, dmg) {
+export function damageUgv(obj, dmg, silent) {
   const u = obj ? ugvFromObj(obj) : null;
   if (!u || u.dead || dmg <= 0) return;
   u.hp -= dmg;
@@ -281,7 +281,7 @@ export function damageUgv(obj, dmg) {
     u.respawnT = UGV_RESPAWN;
     if (S.straf && !S.ads) addCc(100);
     if (radarBonus(u, performance.now() / 1000)) addCc(50);
-    explodeAt(u.model.position.clone());
+    if (!silent) explodeAt(u.model.position.clone());
     if (wreckProto) {
       u.wreck = wreckProto.clone();
       scene.add(u.wreck);
@@ -324,12 +324,12 @@ export function heardShot() {
   near.slice(RUSH_MAX).forEach(function(n) { n[1].noticeT = NOTICE_TIME; });
 }
 
-export function damageUgvSplash(pos, maxDmg) {
+export function damageUgvSplash(pos, maxDmg, silent) {
   ugvs.forEach(function(u) {
     if (u.dead || !u.model) return;
     const d = Math.hypot(u.x - pos.x, u.z - pos.z);
     if (d < 8) {
-      damageUgv(u.model, Math.round(maxDmg * (1 - d / 8)));
+      damageUgv(u.model, Math.round(maxDmg * (1 - d / 8)), silent);
       const t = ugvIdent(u.model);
       if (t) identTarget(t.group, t.maxHp, t.hp);
     }

@@ -57,6 +57,7 @@ const CAMPAIGN = [
   { map: 'Haywire', desc: '' },
   { map: 'Yank', desc: '' },
   { map: 'Jampo', desc: '' },
+  { map: 'Loner', desc: '' },
 ];
 const LVLPLAY = [
   { map: 'Yazd', desc: '' },
