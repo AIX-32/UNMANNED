@@ -9,6 +9,7 @@ import { $, scene, camera, raycaster, mouseNDC, groundMesh, paintMesh, sampleHei
          ensureGroundTex, groundTexCtx, groundTex, GROUND_TEX, texImg,
          markGroundDirty, syncSplat, paintBaseGrass, fbm, proceduralRock } from './core.js';
 import { greeneryStamp } from './greenery.js';
+import { gizmoRaycast, gizmoBegin, gizmoVisible } from './gizmo.js';
 
 
 export function aimHit(includeMarks) {
@@ -69,7 +70,8 @@ export function makeGhost() {
     const m = buildBlockMesh(s);
     m.material = m.material.clone();
     m.material.transparent = true;
-    m.material.opacity = 0.55;
+    m.material.opacity = s.glow ? 0.7 : 0.55;
+    if(s.glow) m.material.emissiveIntensity = 1.1;
     m.castShadow = false;
     m.rotation.y = rotYRad();
     S.ghost = m;
@@ -126,12 +128,23 @@ export function clearSelection() { S.selection = null; S.multiSel = null; showSe
 export function onMouseDown(btn, ev) {
   if (btn !== 0) return;
   if (S.tool === 'select') {
+
+    if (gizmoVisible()){
+      raycaster.setFromCamera(mouseNDC.set((S.mouseX / innerWidth) * 2 - 1, -(S.mouseY / innerHeight) * 2 + 1), camera);
+      const gMode=gizmoRaycast(raycaster);
+      if(gMode){
+        gizmoBegin(gMode);
+        S.dragging=false;
+        S.gizmoDrag=true;
+        return;
+      }
+    }
     const hit = aimHit(true);
     const add = !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey));
     if (!hit) { S.selection = null; S.multiSel = null; showSelInfo(); refreshOutlines(); return; }
     const pick = pickSelectable(hit.object);
     if (!pick) { S.selection = null; S.multiSel = null; showSelInfo(); refreshOutlines(); return; }
-    // ponytail: shift/ctrl click toggles multi-select for boxes (and any type)
+
     if (add) {
       let cur = S.multiSel ? S.multiSel.slice() : (S.selection ? [S.selection] : []);
       const idx = cur.findIndex(function(s) { return s.kind === pick.kind && s.i === pick.i; });
@@ -149,7 +162,7 @@ export function onMouseDown(btn, ev) {
     if (sel && (sel.kind === 'prop' || sel.kind === 'block' || sel.kind === 'ent')) {
       S.dragging = true;
       S.dragBaseY = hit.point.y;
-      // store drag start for multi
+
       const all = getSelections();
       S.dragStarts = all.map(function(s) {
         if (s.kind === 'prop') return { s: s, x: S.map.props[s.i].pos[0], z: S.map.props[s.i].pos[1] };
@@ -294,7 +307,7 @@ export function readBlockDef(pos) {
     size: [parseFloat($('szW').value), parseFloat($('szH').value), parseFloat($('szD').value)],
     color: $('blockColor').value, texture: $('texSel').value,
     repeat: [parseFloat($('repU').value) || 1, parseFloat($('repV').value) || 1],
-    solid: $('blockSolid').checked };
+    solid: $('blockSolid').checked, glow: !!($('blockGlow') && $('blockGlow').checked) };
 }
 
 export function placeAtGhost() {
@@ -330,7 +343,7 @@ export function deleteSelection() {
   if (!all.length) return;
   if (all.length === 1 && all[0].kind === 'sector') { const si = all[0].i; S.selection = null; S.multiSel = null; deleteSector(si); return; }
   pushUndo();
-  // delete from highest index first to keep indices valid
+
   const byKind = {};
   all.forEach(function(s) { (byKind[s.kind] = byKind[s.kind] || []).push(s.i); });
   Object.keys(byKind).forEach(function(k) { byKind[k].sort(function(a, b) { return b - a; }); });
@@ -437,7 +450,20 @@ export function scaleSelection(k) {
   });
   dump(); saveAutosave(); refreshOutlines();
 }
-// bulk edit for boxes - ponytail: minimal, applies to all selected blocks
+
+export function scaleSelectionAxis(axis, delta) {
+  const all = getSelections().filter(function(s){ return s.kind==='block'; });
+  if (!all.length) return;
+  all.forEach(function(sel){
+    const b = S.map.blocks[sel.i];
+    const cur = b.size[axis];
+    const next = Math.max(0.2, cur + delta);
+    b.size[axis] = +next.toFixed(2);
+  });
+  all.forEach(function(sel){ rebuildOne('block', sel.i); });
+  dump(); saveAutosave(); refreshOutlines();
+}
+
 export function bulkBoxEdit(opts) {
   const all = getSelections().filter(function(s) { return s.kind === 'block'; });
   if (!all.length) return 0;
@@ -448,6 +474,7 @@ export function bulkBoxEdit(opts) {
     if (opts.texture !== undefined) b.texture = opts.texture || '';
     if (opts.repeat) b.repeat = opts.repeat.slice();
     if (opts.solid !== undefined) b.solid = !!opts.solid;
+    if (opts.glow !== undefined) b.glow = !!opts.glow;
   });
   all.forEach(function(sel) { rebuildOne('block', sel.i); });
   dump(); saveAutosave(); refreshOutlines();
@@ -624,22 +651,22 @@ export function generateAutoTerrain() {
   pushUndo();
   const H = S.map.terrain.heights, n = S.map.terrain.segs, step = S.map.terrain.size / n, w = n + 1;
   const seed = Math.random()*1000, seed2 = seed*1.37;
-  // ponytail: flats + mountain islands - simple mask so flats stay flat, mountains only where mask high (user wants flats then mountains, not mess of bumps)
+
   for (let j=0;j<=n;j++) for (let i=0;i<=n;i++) {
     const wx = -HALF + i*step, wz = -HALF + j*step;
-    // large mountain mask - low freq, 0..1, smoothstep 0.52->0.78 gives ~25% mountain coverage, 75% flats
+
     const m0 = fbm(wx*0.006+seed, wz*0.006+seed2, 3);
-    const mask = m0*m0*(3-2*m0); // smooth
+    const mask = m0*m0*(3-2*m0);
     const m = THREE.MathUtils.smoothstep(m0, 0.52, 0.78);
-    // flats: tiny variation ~0.7m so still walkable/interesting but flat
+
     const flat = fbm(wx*0.018+seed, wz*0.018+seed2, 2)*0.55 + fbm(wx*0.045, wz*0.045, 2)*0.18;
-    // mountains: ridged only inside mask
+
     const nv = fbm(wx*0.030+seed, wz*0.030+9.1, 4);
     const ridge = Math.pow(1-Math.abs(2*nv-1), 2.3);
     const mtn = ridge * peak * m * (0.70 + 0.30*fbm(wx*0.008+42, wz*0.008+7, 2));
     H[j*w+i] = flat*(1-m*0.65) + mtn;
   }
-  // light TV smoothing + limiter to keep mountains clean but flats flat
+
   for(let pass=0; pass<1; pass++){
     const G=[1,2,1,2,4,2,1,2,1];
     const T=H.slice();
@@ -648,7 +675,7 @@ export function generateAutoTerrain() {
       let acc=0, idx=0;
       for(let dj=-1;dj<=1;dj++) for(let di=-1;di<=1;di++) acc+=T[(j+dj)*w+(i+di)]*G[idx++];
       const h0=T[k];
-      // don't blur flats aggressively - keep them flat
+
       const m0=THREE.MathUtils.smoothstep(fbm((-HALF+i*step)*0.006+seed, (-HALF+j*step)*0.006+seed2,3),0.52,0.78);
       H[k]= h0*(m0*0.45+0.20) + (acc/16)*(0.80 - m0*0.45);
     }
@@ -659,24 +686,24 @@ export function generateAutoTerrain() {
     if (H[k]>avg+lim) H[k]=avg+lim; else if (H[k]<avg-lim) H[k]=avg-lim;
   }
   rebuildAll();
-  // grass fields beside mountains - in flats (low, gentle)
+
   if (doGrass) {
     if (!S.map.grass) S.map.grass = { tex:null, pairs:3, size:0.7, height:1.3, pts:[], unlit:false, radius:0.6 };
     S.map.grass.pts = [];
-    const need = Math.round(90 + SIZE*0.14); // scales with big maps
+    const need = Math.round(90 + SIZE*0.14);
     let tries=0;
     while (S.map.grass.pts.length < need && tries < need*40) {
       tries++;
       const x = THREE.MathUtils.randFloatSpread(SIZE*0.92), z = THREE.MathUtils.randFloatSpread(SIZE*0.92);
       const h = sampleHeight(x,z);
-      if (h < 0.18 || h > 1.45) continue; // flats only
-      // slope check gentle - flats are flat
+      if (h < 0.18 || h > 1.45) continue;
+
       const hx = sampleHeight(x+1,z)-sampleHeight(x-1,z), hz = sampleHeight(x,z+1)-sampleHeight(x,z-1);
       if (Math.hypot(hx,hz) > 0.38) continue;
       S.map.grass.pts.push([+x.toFixed(2),+z.toFixed(2)]);
     }
   }
-  // greenery on flats edges + low hillsides (not on peaks)
+
   if (doTrees) {
     const count = Math.round(22 + SIZE*0.09);
     for (let t=0; t<count; t++) {
@@ -691,7 +718,7 @@ export function generateAutoTerrain() {
     }
   }
   rebuildAll();
-  // smooth stone paint feathered with noise - not straight line
+
   if (doStone) {
     ensureGroundTex(); paintBaseGrass();
     const sel=$('mtTex'); const tex = sel && sel.value ? sel.value : proceduralRock();
@@ -706,7 +733,7 @@ export function generateAutoTerrain() {
         for (let px=0; px<GROUND_TEX; px++) {
           const wx2=-HALF+px*step2;
           const h=sampleHeight(wx2,wz);
-          const n=fbm(wx2*0.04+seed, wz*0.04+seed2, 2)*feather*0.55; // wiggly edge
+          const n=fbm(wx2*0.04+seed, wz*0.04+seed2, 2)*feather*0.55;
           const t=(h - (above + n) + feather)/ (feather*2);
           const a=THREE.MathUtils.clamp(t,0,1);
           const smooth=a*a*(3-2*a);

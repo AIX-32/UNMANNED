@@ -256,7 +256,7 @@ loader.load('assets/models/mortar.gltf', function(gltf) {
 loader.load('assets/models/bonics.gltf', function(gltf) {
   const g = new THREE.Group();
   g.add(gltf.scene);
-  // bonics is tiny Blockbench 0.25 units, scale up — halved per request
+
   g.scale.setScalar(0.6);
   WEAPONS[9].full = g;
   fixGun(WEAPONS[9].full);
@@ -268,7 +268,7 @@ export function curWeaponName() { return WEAPONS[curW].name; }
 S.curGunName = function() { return WEAPONS[curW].name; };
 let ammo = WEAPONS[curW].MAG;
 
-// ponytail: Bonics — binoculars as gun, zoom overlay + raise anim
+
 let bonicsRaise = 0;
 let bonicsOverlay = null, bonicsCv = null, bonicsCtx = null, bonicsTrkEl = null;
 function ensureBonicsOverlay(){
@@ -314,7 +314,7 @@ export function updateBonics(dt){
     bonicsOverlay.style.opacity = vis ? String(Math.min(1, (bonicsRaise-0.88)/0.12)) : '0';
   }
   if(bonicsTrkEl) bonicsTrkEl.style.display='none';
-  // ponytail: hide bonics model when zoomed — overlay has squares, don't see model through holes
+
   try{
     const gm = getGunModel();
     if(gm && isBonicsActive()){
@@ -613,7 +613,7 @@ function shoot() {
   if (w.mortar) {
     flash.intensity = 8; worldFlash.intensity = 6;
     mortarFire();
-    // w.sound() already played above, no double
+
     return;
   }
   if (w.binoc) return;
@@ -830,7 +830,7 @@ export function updateFiring(dt, now) {
       if (w.full) mountGun(w.full);
     }
   }
-  // ponytail: mortar fires while deck is up (mouse unlocked) — no S.isLocked gate for mortar
+
   const _mortarCanFire = w.mortar && curWeaponName() === 'Mortar';
   if (firing && (S.isLocked || _mortarCanFire) && !reloading && bashT > BASH_COOLDOWN && ammo > 0 && now >= nextShot && !(w.pump && wasFiring) && !S.inspect && !usingBox) {
     shoot();

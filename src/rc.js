@@ -9,8 +9,8 @@ import { turretList, damageTurret } from './turret.js';
 import { bossList, damageBoss } from './boss.js';
 import { droneState, damageDrone } from './drone.js';
 
-// ponytail: RC car — buy-once unlock, USES_PER_MAP deployments per map. Remote drone-vehicle:
-// press 6 to arm, RMB places it with a look-down anim, WASD drives (chase cam), Space detonates.
+
+
 
 const RC_KEY = 'gault_rc';
 const USES_PER_MAP = 2;
@@ -34,7 +34,7 @@ function mountHand() {
   rcHand.scale.setScalar(RC_HAND_SCALE);
   rcHand.visible = true;
   recoilPivot.add(rcHand);
-  // hide current gun model(s)
+
   recoilPivot.children.forEach(function(c) {
     if (c !== rcHand && (c.isGroup || c.isMesh || c.type === 'Group')) {
       if (c.visible !== undefined) c._rcHidden = c.visible;
@@ -46,7 +46,7 @@ function unmountHand() {
   if (!rcHand) return;
   recoilPivot.remove(rcHand);
   rcHand = null;
-  // restore gun visibility
+
   recoilPivot.children.forEach(function(c) {
     if (c._rcHidden !== undefined) { c.visible = c._rcHidden; delete c._rcHidden; }
     else if (c.isGroup || c.isMesh) c.visible = true;
@@ -54,7 +54,7 @@ function unmountHand() {
 }
 
 const rc = {
-  phase: 'idle', // idle | armed | deploying | driving
+  phase: 'idle',
   mesh: null,
   x: 0, z: 0, y: 0, yaw: 0, speed: 0,
   t: 0, camX: 0, camY: 0, camZ: 0,
@@ -70,8 +70,8 @@ loader.load('assets/models/rc.gltf', function(gltf) {
   });
   const bb = new THREE.Box3().setFromObject(proto);
   protoMinY = bb.min.y;
-  proto.position.y = -protoMinY; // seat on ground at y=0
-  // if player already armed before model loaded, show it now
+  proto.position.y = -protoMinY;
+
   if (rc.phase === 'armed' && !rcHand) mountHand();
 });
 
@@ -143,7 +143,7 @@ export function detonateRc() {
   postMat.uniforms.uNoise.value = 0.03;
   postMat.uniforms.uVhs.value = 0.0;
   const pos = new THREE.Vector3(rc.x, rc.y + 0.4, rc.z);
-  // ponytail: big RC blast — 18m radius, 900→0 falloff hits everything
+
   const R = 18, MAX = 900;
   const falloff = function(d) { return d < R ? Math.round(MAX * (1 - d / R)) : 0; };
   ugvList().forEach(function(e) {
@@ -153,13 +153,13 @@ export function detonateRc() {
     const f = falloff(Math.hypot(e.x - pos.x, e.z - pos.z)); if (f > 0) damageTurret(e.group, f);
   });
   bossList().forEach(function(e) {
-    const f = falloff(Math.hypot(e.x - pos.x, e.z - pos.z)); if (f > 0) damageBoss(e.group, Math.round(f * 0.2)); // 80% debuff vs TAT-10 (900→180 max, ~4 hits)
+    const f = falloff(Math.hypot(e.x - pos.x, e.z - pos.z)); if (f > 0) damageBoss(e.group, Math.round(f * 0.2));
   });
   const dr = droneState();
   if (dr) {
     const f = falloff(Math.hypot(dr.x - pos.x, dr.z - pos.z)); if (f > 0) damageDrone(f);
   }
-  // big visual — 2.5× grenade
+
   explosion();
   const boom = new THREE.PointLight(0xffaa44, 12, 90);
   boom.position.copy(pos);
@@ -167,7 +167,7 @@ export function detonateRc() {
   const smoke = new THREE.Mesh(new THREE.SphereGeometry(6, 12, 12), new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.5 }));
   smoke.position.copy(pos);
   scene.add(smoke);
-  // drive smoke/boom decay (re-use grenades' explosions list via direct timeout)
+
   let t = 0;
   const tick = function(dt) {
     t += dt;
@@ -180,7 +180,7 @@ export function detonateRc() {
   };
   requestAnimationFrame(function() { tick(1/60); });
   shockwaves.push({ pos: pos.clone(), t0: frameNow, dur: 0.55 });
-  // also push a second wider ring for scale
+
   setTimeout(function() { shockwaves.push({ pos: pos.clone(), t0: frameNow + 0.08, dur: 0.5 }); }, 80);
   killAudio();
   restoreCam();
@@ -239,7 +239,7 @@ function updateChase(dt) {
   const gx = groundHeight(rc.x, rc.z);
   rc.y = gx;
   const targetYaw = rc.yaw;
-  // camera behind + above, looking at the RC
+
   const behindX = rc.x - fx * 3.1;
   const behindZ = rc.z - fz * 3.1;
   const behindY = rc.y + 2.1;
@@ -278,14 +278,14 @@ export function updateRc(dt, now) {
       heldY + (gx - heldY) * k,
       heldZ + (rc.z - heldZ) * k
     );
-    // camera looks down as the car is set on the ground
+
     const downPitch = -1.0;
     S.euler.y = rc.startEul.y;
     S.euler.x = rc.startEul.x + (downPitch - rc.startEul.x) * k;
     S.euler.z = 0;
     camera.quaternion.setFromEuler(S.euler);
     camera.position.copy(rc.startEye);
-    // light VHS while placing (close range)
+
     {
       const dist = Math.hypot(rc.x - rc.startEye.x, rc.z - rc.startEye.z);
       const k = Math.min(dist / 140, 1);
@@ -301,7 +301,7 @@ export function updateRc(dt, now) {
     return;
   }
 
-  // driving
+
   const throttle = S.keys['KeyW'] ? 1 : 0;
   const brake = S.keys['KeyS'] ? 1 : 0;
   const steer = (S.keys['KeyD'] ? 1 : 0) - (S.keys['KeyA'] ? 1 : 0);
@@ -325,12 +325,12 @@ export function updateRc(dt, now) {
   rc.mesh.rotation.y = rc.yaw;
   rc.mesh.rotation.x = 0; rc.mesh.rotation.z = 0;
 
-  // speed feel: mild fov punch + shake
+
   const spdK = Math.min(1, Math.abs(rc.speed) / TOP_SPEED);
   S.fovPunch = Math.min(S.fovPunch + spdK * 3.5, 14);
 
   updateChase(dt);
-  // ponytail: fancy VHS (glitch-core vhs+scanlines+grain) — strength = distance, from samplemaple/glitch-core (MIT)
+
   {
     const dist = Math.hypot(rc.x - rc.startEye.x, rc.z - rc.startEye.z);
     const k = Math.min(dist / 140, 1);

@@ -225,7 +225,7 @@ function attachOf(b, local) {
 function bossFire(b) {
   const origin = attachOf(b, BOSS_FLASH.pos);
   let dir = new THREE.Vector3().subVectors(camera.position, origin).normalize();
-  // ponytail: flat miss chance like UGVs, missiles untouched
+
   const dist = origin.distanceTo(camera.position);
   const moving = S.keys['KeyW'] || S.keys['KeyA'] || S.keys['KeyS'] || S.keys['KeyD'];
   const missed = Math.random() < THREE.MathUtils.clamp(0.15 + 0.55 * (dist / FIRE_RANGE) + (moving ? 0.15 : 0), 0, 0.85);

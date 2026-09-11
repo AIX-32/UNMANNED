@@ -3,7 +3,7 @@
 import { S, HALF, SIZE, freshMap, formulaGrid, segsForSize, bilinearResample } from './state.js';
 import * as idb from '../idb.js';
 import { $, status, show, hide, TEXTURES, MODELS, workLight, toggleNight, setNight, setFogHidden, isFogHidden, setFogSlider, getFogSlider, undo, camera,
-         pushUndo, dump, dumpNow, saveAutosave, rebuildAll, brushRing, euler, orbit,
+         pushUndo, dump, dumpNow, saveAutosave, rebuildAll, brushRing, euler, orbit, applyBoxSizeFromInputs,
          setPvpRebuild, addPinButton, isPinned, setRain } from './core.js';
 import { clearGhost, makeGhost, deleteSelection, duplicateSelection, rotateSelection,
          scaleSelection, nudgeSelection, setBrushMode, finishWall, backspaceWall,
@@ -102,7 +102,7 @@ export function cycleSnap() {
 export function updateHint() {
   const h = $('hint');
   let t = 'RMB drag = look around · wheel = zoom / fly-dolly · WASD fly (R/F up/down) · arrows look · Shift fast · L = work light · N = night\n';
-  if (S.tool === 'select') t += 'click = pick · Shift/Ctrl+click = add to multi · drag = move all · ←↑↓→ slide · PgUp/Dn lift · [ ] rotate · -/+ scale · V dup · X del · bulk color/texture in Selection panel';
+  if (S.tool === 'select') t += 'click = pick · gizmo: red/blue move XZ, green up, cubes scale, yellow ring rotate Y · face snap within 0.25m for buildings · Shift/Ctrl+click = add to multi · drag = move all · ←↑↓→ slide · PgUp/Dn lift · [ ] rotate · -/+ scale · V dup · X del · bulk color/texture/glow + W/H/D in Selection panel';
   if (S.tool === 'place') t += 'aim + click = stamp (keeps going) · rotY in panel spins the ghost · 1/2/3/4 tools · G snap';
   if (S.tool === 'terrain') t += 'hold click = sculpt · raise/lower/smooth/flatten in panel · ⛰ generate mountains = ridged ring around the map + stone above the height line';
   if (S.tool === 'paint') t += 'hold click = paint active layer · Alt = erase to grass · layers in panel';
@@ -256,6 +256,7 @@ export function initUI() {
   $('primSel').addEventListener('change', makeGhost);
   $('blockColor').addEventListener('change', makeGhost);
   $('texSel').addEventListener('change', makeGhost);
+  if ($('blockGlow')) $('blockGlow').addEventListener('change', makeGhost);
   $('placeScale').addEventListener('input', function() {
     $('placeScaleV').textContent = parseFloat(this.value).toFixed(2);
     makeGhost();
@@ -264,6 +265,13 @@ export function initUI() {
     $('placeRotYV').textContent = this.value + '°';
     if (S.ghost) S.ghost.rotation.y = THREE.MathUtils.degToRad(parseFloat(this.value) || 0);
   });
+
+  (function(){
+    const pk=$('placeKind'), rs=$('rowScale');
+    if (!pk||!rs) return;
+    function sync(){ rs.style.display = pk.value==='block' ? 'none' : ''; }
+    pk.addEventListener('change', sync); sync();
+  })();
 
 
   [['tbRaise', 'raise'], ['tbLower', 'lower'], ['tbSmooth', 'smooth'], ['tbFlatten', 'flatten']].forEach(function(pair) {
@@ -356,9 +364,10 @@ export function initUI() {
   $('bDup').onclick = duplicateSelection;
   $('bDel').onclick = deleteSelection;
   $('snapBtn').onclick = cycleSnap;
-  // bulk box edit wiring — ponytail: two buttons apply color/texture to all selected boxes
+
   (function() {
     const bc = $('bulkColor'), bt = $('bulkTex'), bca = $('bulkColorApply'), bta = $('bulkTexApply');
+    const bg = $('bulkGlow'), bga = $('bulkGlowApply');
     if (!bca || !bta) return;
     function fillBulkTex() {
       const cur = bt.value;
@@ -383,6 +392,13 @@ export function initUI() {
       const n = bulkBoxEdit({ texture: bt.value });
       status(n ? 'texture → ' + n + ' box' + (n === 1 ? '' : 'es') : 'no boxes selected');
     };
+    if (bga) bga.onclick = function(){
+      const n = bulkBoxEdit({ glow: bg.checked });
+      status(n ? (bg.checked?'glow on → ':'glow off → ')+ n + ' box'+(n===1?'':'es') : 'no boxes selected');
+    };
+    ['boxW','boxH','boxD'].forEach(function(id){
+      const el=$(id); if(el) el.addEventListener('change', applyBoxSizeFromInputs);
+    });
   })();
 
 
@@ -458,7 +474,7 @@ export function initUI() {
     status('terrain ' + v + 'm - resampled to ' + newN + 'x' + newN + ' grid (heights stretched)');
   }
   $('mapSize').addEventListener('change', applySizeFromInput);
-  $('mapSize').addEventListener('input', function(){ /* live preview without undo flood */ });
+  $('mapSize').addEventListener('input', function(){                                       });
   $('bNew').onclick = function() {
     pushUndo();
     S.map = freshMap($('mapName').value || 'map01', parseFloat($('mapSize').value) || 200);

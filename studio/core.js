@@ -11,7 +11,7 @@ export function status(msg) {
 export function show(el) { el.style.display = 'flex'; }
 export function hide(el) { el.style.display = 'none'; }
 
-// ---- window pinning: a pinned fwin stays open when you switch tools/workspaces ----
+
 const pinned = new Set();
 export function isPinned(id) { return !!id && pinned.has(id); }
 export function setPinned(id, on) {
@@ -55,7 +55,7 @@ scene.background = new THREE.Color(0x1a1512);
 scene.fog = new THREE.FogExp2(0x1a1512, 0.010);
 let fogHidden = false;
 let fogSlider = 50;
-function sliderToDensity(v){ // 0 = dense near, 100 = far thin - ponytail: linear 0.02→0.002, 50≈0.011 ≈ old 0.010
+function sliderToDensity(v){
   return 0.020 - (Math.max(0,Math.min(100,parseFloat(v)||0))*0.00018);
 }
 export function setFogHidden(v){
@@ -78,9 +78,9 @@ if (scene.fog) scene.fog.density = fogHidden ? 0 : sliderToDensity(fogSlider);
 export const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 600);
 camera.position.set(0, 18, 42);
 camera.lookAt(0, 0, 0);
-// ponytail: far grows with map size so the whole field stays visible
+
 function syncCameraFar(){
-  const need = Math.ceil(SIZE * 2); // keep default 600 for 200m, 2000 for 1000m
+  const need = Math.ceil(SIZE * 2);
   const far = Math.max(600, need);
   if (camera.far !== far){ camera.far = far; camera.updateProjectionMatrix(); }
 }
@@ -126,13 +126,13 @@ addEventListener('resize', function() {
 
 
 const texLoader = new THREE.TextureLoader();
-// loader bridge: counts in-flight async world loads (models + textures) so the
-// boot overlay can hide once the scene has actually finished appearing.
+
+
 let _pend = 0, _idle = null;
 function _push() { _pend++; }
 function _pop() { if (--_pend <= 0) { _pend = 0; if (_idle) { const f = _idle; _idle = null; f(); } } }
 export function whenAsyncIdle(fn) { if (_pend <= 0) fn(); else _idle = fn; }
-// grab a handle that holds the boot overlay open until its (async) work lands
+
 export function asyncLoad() { _push(); return _pop; }
 export const TEXTURES = [
   { label: 'grass.webp', src: '../assets/textures/grass.webp' },
@@ -303,13 +303,26 @@ export function buildBlockMesh(b) {
   else if (b.prim === 'cyl') geo = new THREE.CylinderGeometry(b.size[0] / 2, b.size[0] / 2, b.size[1], 14);
   else geo = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
   const mat = new THREE.MeshLambertMaterial({ color: b.color || '#8a8578' });
-  if (b.prim === 'plane') { mat.side = THREE.DoubleSide; mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -1; } // ponytail: flush decal on box face → z-fight, polygonOffset lifts without moving data (migrates old maps)
-  if (b.texture) mat.map = makeTex(b.texture, b.repeat ? b.repeat[0] : 1, b.repeat ? b.repeat[1] : 1);
+  if (b.prim === 'plane') { mat.side = THREE.DoubleSide; mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -1; }
+  if (b.texture) {
+    mat.map = makeTex(b.texture, b.repeat ? b.repeat[0] : 1, b.repeat ? b.repeat[1] : 1);
+
+    mat.transparent = true;
+    mat.alphaTest = 0.15;
+  }
+
+  if (b.glow) {
+    const glowCol = new THREE.Color(b.color || '#8a8578');
+    mat.emissive = glowCol.clone();
+    mat.emissiveIntensity = 1.1;
+    if (mat.map) mat.emissiveMap = mat.map;
+    mat.emissiveIntensity = 1.1;
+  }
   const m = new THREE.Mesh(geo, mat);
   m.position.set(b.pos[0], b.pos[1], b.pos[2]);
   m.rotation.y = THREE.MathUtils.degToRad(b.rotY || 0);
-  m.castShadow = true;
-  m.receiveShadow = true;
+  m.castShadow = !b.glow;
+  m.receiveShadow = !b.glow;
   blockGroup.add(m);
   return m;
 }
@@ -394,7 +407,7 @@ export function rebuildAll() {
   if (!S.map.story.cam) S.map.story.cam = [];
   if (!S.map.story.triggers) S.map.story.triggers = [];
   if (!S.map.grass) S.map.grass = { tex: null, pairs: 3, size: 0.7, height: 1.3, pts: [], unlit: false, radius: 0.6 };
-  // ponytail: guard corrupted autosave with huge grass — keep world loadable
+
   if (S.map.grass.pts && S.map.grass.pts.length > 8000) {
     const was = S.map.grass.pts.length;
     console.warn('truncating grass pts', was, '→8000');
@@ -402,7 +415,7 @@ export function rebuildAll() {
     status('truncated grass to 8000 points (was ' + was + ')');
     try { dump(); saveAutosave(); } catch(e){}
   }
-  // ponytail: guard huge data URL (>2MB) — likely accidental 4K PNG
+
   if (S.map.grass.tex && S.map.grass.tex.length > 2_000_000) {
     console.warn('grass tex too large', S.map.grass.tex.length);
     S.map.grass.tex = null;
@@ -530,7 +543,7 @@ export function refreshOutlines() {
   outlineHelpers.forEach(function(h) { scene.remove(h); });
   outlineHelpers = [];
   const all = (S.multiSel && S.multiSel.length ? S.multiSel : (S.selection ? [S.selection] : []));
-  if (!all.length) return;
+  if (!all.length || S.tool!=='select') { try{ const {gizmoDetach}=awaitGizmo(); gizmoDetach(); }catch(e){} if(!all.length) return; }
   all.forEach(function(sel) {
     let obj = null;
     if (sel.kind === 'prop' && propGroup.children[sel.i]) obj = propGroup.children[sel.i];
@@ -545,6 +558,16 @@ export function refreshOutlines() {
     scene.add(box);
     outlineHelpers.push(box);
   });
+
+  try{
+    const {gizmoAttach, gizmoDetach}=awaitGizmo();
+    if(S.tool==='select' && all.length===1 && all[0].kind==='block') gizmoAttach(all[0].i);
+    else gizmoDetach();
+  }catch(e){}
+}
+function awaitGizmo(){
+
+  try{ return {gizmoAttach: window.__gizmoAttach, gizmoDetach: window.__gizmoDetach}; }catch(e){ return {gizmoAttach:function(){}, gizmoDetach:function(){}};}
 }
 
 
@@ -594,16 +617,48 @@ function showBulkBox(n) {
   const row = $('bulkBoxRow'); if (!row) return;
   row.style.display = n ? '' : 'none';
   const lab = $('bulkBoxLabel'); if (lab) lab.textContent = n > 1 ? 'edit ' + n + ' boxes:' : 'edit box:';
-  // sync bulk controls to single selection when n==1
+  const bsr=$('boxSizeRow');
+  if (bsr) bsr.style.display = n ? '' : 'none';
+
   if (n === 1) {
     const b = S.map.blocks[S.selection.i];
     if (b) {
       const c = $('bulkColor'); if (c) c.value = b.color || '#8a8578';
       const t = $('bulkTex'); if (t) t.value = b.texture || '';
+      const bg=$('bulkGlow'); if (bg) bg.checked = !!b.glow;
+      const bw=$('boxW'), bh=$('boxH'), bd=$('boxD'), lbd=$('boxDLabel');
+      if (bw) bw.value = b.size[0]; if (bh) bh.value = b.size[1]; if (bd) bd.value = b.size[2];
+      const isPlane=b.prim==='plane';
+      if (bd) bd.style.display=isPlane?'none':''; if(lbd) lbd.style.display=isPlane?'none':'';
+      if (bw) bw.title=isPlane?'width':''; if(bh) bh.title=isPlane?'height':'';
     }
+  } else if(n>1){
+    const bw=$('boxW'), bd=$('boxD'), lbd=$('boxDLabel');
+
+    if(bd) bd.style.display=''; if(lbd) lbd.style.display='';
   }
 }
-function hideBulkBox() { const row = $('bulkBoxRow'); if (row) row.style.display = 'none'; }
+function hideBulkBox() { const row = $('bulkBoxRow'); if (row) row.style.display = 'none'; const bsr=$('boxSizeRow'); if(bsr) bsr.style.display='none'; }
+
+export function applyBoxSizeFromInputs(){
+  const bw=$('boxW'), bh=$('boxH'), bd=$('boxD');
+  if (!bw) return;
+  const all = (S.multiSel&&S.multiSel.length?S.multiSel:(S.selection?[S.selection]:[])).filter(function(s){return s.kind==='block';});
+  if (!all.length) return;
+  const w=Math.max(0.2, parseFloat(bw.value)||0.2), h=Math.max(0.2, parseFloat(bh.value)||0.2), d=Math.max(0.2, parseFloat(bd.value)||0.2);
+
+  let changed=false;
+  all.forEach(function(s){ const b=S.map.blocks[s.i]; if(b.size[0]!==w||b.size[1]!==h||b.size[2]!==d) changed=true; });
+  if (!changed) return;
+  pushUndo();
+  all.forEach(function(s){
+    const b=S.map.blocks[s.i]; b.size=[+w.toFixed(2), +h.toFixed(2), +d.toFixed(2)];
+    const old=blockGroup.children[s.i]; if(old){ blockGroup.remove(old); old.traverse(function(c){ if(c.material){ if(c.material.map) c.material.map.dispose(); c.material.dispose(); } }); if(old.geometry) old.geometry.dispose(); }
+  });
+  all.forEach(function(s){ buildBlockMesh(S.map.blocks[s.i]); });
+  dump(); saveAutosave(); refreshOutlines();
+  if (typeof window!=='undefined' && window.__gizmoUpdate) window.__gizmoUpdate();
+}
 let autosaveT = null;
 export function saveAutosave() {
   clearTimeout(autosaveT);
@@ -660,7 +715,7 @@ export function updateCamera(dt) {
   if (flyVel.length() > 0) {
     flyVel.normalize().multiplyScalar(speed);
     orbit.pos.add(flyVel);
-    // ponytail: no clamp - was HALF/60, unlimited zoom-out requested
+
   }
   camera.position.copy(orbit.pos);
   euler.set(orbit.pitch, orbit.yaw, 0, 'YXZ');
@@ -794,7 +849,7 @@ export function syncSplat() {
   if (groundDirty && groundTexCanvas) S.map.groundTex = groundTexCanvas.toDataURL('image/png');
 }
 
-// ---- rain preview ---- ponytail: same volume as game, follows orbit.pos, LineSegments
+
 let sRainLines = null, sRainPos = null, sRainVel = null, sRainLen = null, sRainDx = null, sRainDz = null;
 const S_RAIN_COUNT = 2100, S_RAIN_RAD = 65, S_RAIN_TOP = 30, S_RAIN_FALL = 19;
 function sMakeRain(){
@@ -819,8 +874,8 @@ function sMakeRain(){
     const j=i*6; sRainPos[j]=x; sRainPos[j+1]=y; sRainPos[j+2]=z; sRainPos[j+3]=x-0.16-dx*0.05; sRainPos[j+4]=y-len; sRainPos[j+5]=z-0.11-dz*0.05;
   }
   const geo=new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(sRainPos,3));
-  const mat=new THREE.LineBasicMaterial({ color:0xc9d7f0, transparent:true, opacity:0.38, fog:true, depthWrite:false });
-  sRainLines=new THREE.LineSegments(geo, mat); sRainLines.frustumCulled=false; scene.add(sRainLines);
+  const mat=new THREE.LineBasicMaterial({ color:0xc9d7f0, transparent:true, opacity:0.38, fog:true, depthWrite:false, depthTest:true });
+  sRainLines=new THREE.LineSegments(geo, mat); sRainLines.frustumCulled=false; sRainLines.renderOrder=10; sRainLines.userData.rain=true; scene.add(sRainLines);
 }
 function sClearRain(){
   if (!sRainLines) return;

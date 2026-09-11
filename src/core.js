@@ -11,11 +11,11 @@ try{ const f = localStorage.getItem('gault_fogSlider'); if(f!=null) fogSlider=Ma
 export const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 360);
 camera.position.set(0, 2, 5);
 camera.lookAt(0, 1, 0);
-// ponytail: far grows with map size so the whole field stays visible
+
 export function setRenderSize(size){
   const s = Math.max(50, Math.min(1000, size || 200));
-  const need = Math.ceil(s * 1.5); // diagonal ~1.41*s, give a little headroom
-  const far = Math.max(360, need); // keep at least default for 200m maps
+  const need = Math.ceil(s * 1.5);
+  const far = Math.max(360, need);
   if (camera.far !== far){ camera.far = far; camera.updateProjectionMatrix(); }
 }
 
@@ -67,7 +67,7 @@ export const postMat = new THREE.ShaderMaterial({
     '    suv += dirv * ring * 0.035 * w;',
     '  }',
     '  suv = floor(suv * uPix) / uPix;',
-    // VHS tracking — adapted from samplemaple/glitch-core/shaders/vhs.glsl (MIT)
+
     '  float vhsTrack = 0.0;',
     '  if (uVhs > 0.01) {',
     '    float hv = hash(vec2(floor(suv.y * uPix.y / 3.0), floor(mod(uTime * 11.0, 127.0))));',
@@ -91,7 +91,7 @@ export const postMat = new THREE.ShaderMaterial({
     '  float l = dot(c, vec3(0.299,0.587,0.114));',
     '  c = mix(vec3(l), c, 1.05);',
     '  c = floor(c * 32.0 + 0.5) / 32.0;',
-    // scanlines + flicker (glitch-core/scanlines.glsl + grain.glsl)
+
     '  float scan = step(0.5, mod(vUv.y * uPix.y, 3.0) / 3.0);',
     '  c = mix(c, c * vec3(0.68,0.68,0.78), scan * uVhs * 0.45);',
     '  c *= 0.94 + 0.12 * hash(vec2(floor(uTime * 18.0), 0.0)) * uVhs;',

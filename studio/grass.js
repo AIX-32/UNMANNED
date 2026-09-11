@@ -328,24 +328,24 @@ function colorMatchSprite() {
     status('sprite color-matched to ground');
   }).catch(function() { status("couldn't read ground tile for color correction"); });
 }
-// ---- growable blade buffers ----
-// Blades are drawn as non-indexed quads (6 verts) appended straight into
-// growable GPU buffers (capacity doubles). Each paint tick we upload ONLY the
-// newly appended vertices via attribute.updateRange; a full rebuild/scatter
-// happens only on settings/sprite/fill changes. So painting costs O(delta),
-// independent of how much grass the map already holds.
+
+
+
+
+
+
 let grassMesh = null;
-let _geo = null;      // geometry holding the live grass buffers
-let _used = 0;        // vertices actually in the buffers
-let _cap = 0;         // buffer capacity (vertices), grows by doubling
-let _dirty = 0;       // first appended vertex index not yet uploaded
-let _live = false;    // buffers exist and mirror g.pts
-let _gen = 0;         // bumped on each full rebuild - stale async scatters are dropped
-const ASYNC_GRASS_MIN = 500;  // maps with >= this many pts scatter off the main thread
+let _geo = null;
+let _used = 0;
+let _cap = 0;
+let _dirty = 0;
+let _live = false;
+let _gen = 0;
+const ASYNC_GRASS_MIN = 500;
 
 function ensureCap(need) {
   if (need <= _cap) return;
-  // ponytail: hard cap ~1M verts stays well under WebGL 30M limit and ~15MB
+
   const HARD = 1000000;
   if (need > HARD) { status('grass limit reached — clear some grass'); need = HARD; }
   let nc = _cap || 4096;
@@ -382,7 +382,7 @@ function addQuad(x, y0, z, w, h, a) {
   addV(X1, Y1, Z1, 0, 1);
   addV(X1, y0, Z1, 0, 0);
 }
-// upload only the not-yet-uploaded tail, then refresh culling + draw range
+
 function flushLive() {
   if (!_live || !grassMesh || _used === _dirty) return;
   const A = _geo.attributes, dv = _used - _dirty;
@@ -429,9 +429,9 @@ function scatterPoint(pt, g) {
   }
 }
 
-// Build a fresh (empty) grass geometry + material + mesh and reset the growable
-// buffers. Returns false when there's nothing to scatter (no tex / no pts).
-// Bumps _gen so an in-flight async scatter for an older geometry is discarded.
+
+
+
 function _setupGrass() {
   const g = ensureGrass();
   if (grassMesh) { scene.remove(grassMesh); grassMesh.geometry.dispose(); grassMesh.material.dispose(); grassMesh = null; }
@@ -444,7 +444,7 @@ function _setupGrass() {
   if (img.complete && img.width) { tex.image = img; tex.needsUpdate = true; }
   else img.onload = function() { tex.image = img; tex.needsUpdate = true; };
 
-  // ponytail: unlit so both sides same brightness (no directional shading)
+
   const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 });
   _geo = new THREE.BufferGeometry();
   grassMesh = new THREE.Mesh(_geo, mat);
@@ -465,10 +465,10 @@ function buildGrassMesh() {
   _finishSyncScatter();
 }
 export function rebuildGrassMesh() { buildGrassMesh(); }
-// Async full rebuild (world load / New / Load / terrain rescale / auto terrain).
-// Scatters the existing points off the main thread exactly like fill / place-all,
-// so opening a map with a huge grass field no longer freezes the boot/loader.
-// Small maps keep the instant synchronous path (no worker round-trip).
+
+
+
+
 function buildGrassMeshAsync() {
   if (!_setupGrass()) return;
   const g = ensureGrass();
@@ -482,7 +482,7 @@ function buildGrassMeshAsync() {
   const done = asyncLoad();
   _bulkJob({ mode: 'points', points: pts, cfg: _grassCfg(), scatter: true, terrain: _terrainPayload() })
     .then(function(res) {
-      if (gen !== _gen || !res.positions) return; // world rebuilt again meanwhile - drop stale scatter
+      if (gen !== _gen || !res.positions) return;
       _appendBulk(res.positions);
     })
     .catch(function() {})
@@ -528,7 +528,7 @@ export function applyGrass(dt) {
   if (g.pts.length >= 8000) { status('grass limit 8000 — clear some'); return; }
   g.pts.push([+hit.point.x.toFixed(2), +hit.point.z.toFixed(2)]);
   if (!_live) { buildGrassMesh(); return; }
-  // ponytail: drop stroke if we'd exceed HARD vert cap
+
   if (_used > 7900000) { status('grass vert limit — clear some'); return; }
   scatterPoint(g.pts[g.pts.length - 1], g);
   const now = performance.now();
@@ -554,7 +554,7 @@ export function setGrassMode(on) {
 }
 
 
-// ---- bulk grass: fill / place-all run on a worker so the studio never freezes ----
+
 let _bulkSeq = 0, _worker = null;
 const _inflight = new Map();
 function _getWorker() {
@@ -598,8 +598,8 @@ function _bulkJob(payload) {
     w.postMessage(Object.assign({ id: id }, payload));
   });
 }
-// append worker-built blades (Float32Array, 6 non-indexed verts per quad) to the
-// live growable buffers, deriving uvs/normals by the fixed quad pattern
+
+
 function _appendBulk(pos) {
   if (!pos || !pos.length) return;
   if (!_live || !grassMesh || !_geo) return;
@@ -651,7 +651,7 @@ export function finishGrassRegion() {
   if (!regionMode) return;
   if (regionDraft.length < 3) { status('need at least 3 points to outline a region'); return; }
   const g = ensureGrass();
-  // ponytail: accept either tex or texRaw (cc keeps original in texRaw while async repaints tex)
+
   if (!g.tex && !g.texRaw) return status('upload a grass sprite first - pick an image with the button at the top of the grass panel (preview should show it)');
   if (!g.tex && g.texRaw) g.tex = g.texRaw;
   if (!S.map.terrain || !S.map.terrain.heights) return status('no terrain to fill');

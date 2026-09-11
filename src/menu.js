@@ -40,6 +40,7 @@ document.addEventListener('pointerlockchange', function() {
   loader.style.display = 'none';
   setPauseMenuVisible(false);
   S.paused = false;
+  maybePlayOpening();
   if (S.hub) { boardReopen(mesh); boardReopen(adMesh); beginHubIntro(); }
   else if (hasIntro()) beginStory();
 });
@@ -48,7 +49,7 @@ export function bootActive() { return !loaderDone; }
 
 
 const CAMPAIGN = [
-  { map: 'Ardebin', desc: '' },
+  { map: 'Ardebin', title: 'Opening creds', desc: '' },
   { map: 'Gulled', desc: '' },
   { map: 'Takkera', desc: '' },
   { map: 'Jimp', desc: '' },
@@ -62,7 +63,40 @@ const CAMPAIGN = [
 const LVLPLAY = [
   { map: 'Yazd', desc: '' },
 ];
-// ponytail: campaign preview cache — images in assets/preview/<Map>.png|.jpg
+
+let openingPlayed = false;
+let openingFadeTimer = null;
+function maybePlayOpening(){
+  if(openingPlayed) return;
+  const first = CAMPAIGN[0].map;
+  const firstTitle = CAMPAIGN[0].title;
+  const urlMap = new URLSearchParams(location.search).get('map');
+  const isFirst = S.mapName === first || S.mapName === firstTitle || S.mapName === 'TScreen' || urlMap === first || (window.GAULT_MAP_URL && window.GAULT_MAP_URL.indexOf(first) !== -1);
+  if(!isFirst) return;
+  openingPlayed = true;
+  console.log('[opening] playing for', S.mapName, urlMap, window.GAULT_MAP_URL);
+  const a = new Audio('assets/audio/opening_credits.mp3');
+  a.volume = 0.85;
+  a.loop = false;
+  window.__openingAudio = a;
+  a.addEventListener('error', function(){ console.warn('[opening] audio error', a.error); });
+  a.addEventListener('canplay', function(){ console.log('[opening] canplay'); });
+  a.play().then(function(){ console.log('[opening] playing'); }).catch(function(e){ console.warn('[opening] play failed', e); });
+}
+function fadeOpening(ms){
+  ms = ms || 2800;
+  const a = window.__openingAudio;
+  if(!a || a.paused) return;
+  if(openingFadeTimer) clearInterval(openingFadeTimer);
+  const startVol = a.volume;
+  const start = performance.now();
+  openingFadeTimer = setInterval(function(){
+    const k = (performance.now() - start) / ms;
+    if(k >= 1){ clearInterval(openingFadeTimer); openingFadeTimer = null; try{ a.volume = 0; a.pause(); }catch(e){} console.log('[opening] faded out'); }
+    else try{ a.volume = startVol * (1 - k); }catch(e){}
+  }, 50);
+}
+
 const campPreviewCache = {};
 let campHoverMap = null;
 function campPreview(map){
@@ -108,7 +142,7 @@ function playNamed(map) { location.href = 'index.html?map=' + encodeURIComponent
 function playCustom(json) { idb.set(PLAY_KEY, json).then(function() { location.href = 'index.html?map=__custom'; }); }
 function goStudio() { location.href = 'studio/index.html'; }
 
-// ponytail: dev cheat — press H in settings (see input.js)
+
 export function cheatUnlockAll() {
   CAMPAIGN.forEach(function(c) { campMarkBeaten(c.map); });
   const v = parseInt(idb.get('gault_cc') || '0', 10) || 0;
@@ -156,7 +190,7 @@ storyMesh.renderOrder = 980;
 storyMesh.visible = false;
 scene.add(storyMesh);
 
-// ponytail: shop preview — offscreen 512 canvas rendered then blitted onto menu canvas square
+
 const previewCv = document.createElement('canvas'); previewCv.width = 512; previewCv.height = 512;
 let previewR = null, previewScene = null, previewCam = null, previewMesh = null;
 function ensurePreview() {
@@ -191,7 +225,7 @@ function setPreviewModel(obj) {
 
 let view = 'hub';
 let campScroll = 0;
-let shopSelected = null; // null | shop item id
+let shopSelected = null;
 let drawnView = null;
 const menuBtns = [];
 const winBtns = [];
@@ -337,7 +371,7 @@ function panelRow(btns, y, name, btnsSpec) {
 }
 
 function drawMenu() {
-  // ponytail: include shopSelected so grid→detail pops same as any view switch
+
   const viewKey = view === 'shop' ? 'shop:' + (shopSelected || 'grid') : view;
   const mpKey = view === 'multiplayer' ? 'multiplayer:' + mp.mode : viewKey;
   if (mpKey !== drawnView) { drawnView = mpKey; boardReopen(mesh); }
@@ -377,26 +411,28 @@ function drawMenu() {
     if (view === 'campaign') {
       const maxScroll = Math.max(0, 150 + (CAMPAIGN.length - 1) * 44 + 38 - 420);
       campScroll = Math.max(0, Math.min(maxScroll, campScroll));
-      // left list — clipped under BACK
+
       let y = 112 - campScroll;
       CAMPAIGN.forEach(function(lvl, i) {
         const by = y;
         y += 44;
-        if (by + 38 < 96 || by > 428) return; // ponytail: don't draw under BACK/top
+        if (by + 38 < 96 || by > 428) return;
         const cleared = campBeaten(lvl.map), ok = unlocked(i);
-        const label = (i + 1) + '. ' + lvl.map;
+        const disp = lvl.title || lvl.map;
+        const label = (i + 1) + '. ' + disp;
         const dim = !ok;
         const status = cleared ? ' ✓' : (ok ? '' : '  LOCKED');
         panelBtn(menuBtns, 36, by, 460, 38, label + status, ok ? (function(m){ return function(){ playNamed(m); }; })(lvl.map) : null, dim, 20);
       });
-      // right preview — outline follows the image aspect; box spans the same height as the
-      // level list (96..428) and keeps the last-hovered map when nothing is hovered
+
+
       const PX = 552, PT = 96, PB = 428;
       const PW = CW - 24 - PX;
       let hoverMap = null;
       if (hoverLabel) {
         for (let i = 0; i < CAMPAIGN.length; i++) {
-          const lbl = (i + 1) + '. ' + CAMPAIGN[i].map;
+          const disp = CAMPAIGN[i].title || CAMPAIGN[i].map;
+          const lbl = (i + 1) + '. ' + disp;
           if (hoverLabel === lbl || hoverLabel === lbl + ' ✓' || hoverLabel === lbl + '  LOCKED') { hoverMap = CAMPAIGN[i].map; break; }
         }
       }
@@ -443,7 +479,7 @@ function drawMenu() {
       });
       panelBtn(menuBtns, 60, 440, 380, 56, 'BACK', function() { view = 'hub'; drawMenu(); });
     } else if (view === 'shop') {
-      // ponytail: grid + detail with spinning preview square on right
+
       function shopCatalog() {
         const a = [];
         WEAPONS.filter(function(w){ return w.price!=null; }).forEach(function(w){
@@ -464,25 +500,25 @@ function drawMenu() {
         });
         if(cur) lines.push(cur); return lines;
       }
-      // header CC
+
       ctx.fillStyle='#fff'; ctx.font='700 30px Tomorrow,monospace'; ctx.textAlign='left'; ctx.textBaseline='middle'; textShadow(true); ctx.fillText('CC '+ccTotal(), 60, 48); textShadow(false);
       if (shopSelected) {
         const it = catalog.find(function(x){ return x.id===shopSelected; }) || catalog[0];
-        // title top-left
+
         ctx.fillStyle='#fff'; ctx.font='700 32px Tomorrow,monospace'; ctx.textAlign='left'; ctx.textBaseline='top'; textShadow(true);
         ctx.fillText(it.title, 60, 110); textShadow(false);
-        // desc left
+
         ctx.font='500 18px Tomorrow,monospace'; ctx.fillStyle='rgba(255,255,255,0.92)';
         const dLines = wrapLines(it.desc + ' ' + it.price + ' CC', 520);
         dLines.slice(0,5).forEach(function(ln,i){ ctx.fillText(ln, 60, 150 + i*22); });
-        // owned/afford hint
+
         const owned = it.owned(); const afford = ccTotal() >= it.price;
         if (owned){ ctx.fillStyle='#8f8'; ctx.font='700 18px Tomorrow,monospace'; ctx.fillText('OWNED', 60, 270); }
         else if (!afford){ ctx.fillStyle='#f88'; ctx.font='700 18px Tomorrow,monospace'; ctx.fillText('NEED '+(it.price-ccTotal())+' CC', 60, 270); }
-        // square on right
+
         const SQX=640, SQY=108, SQS=340;
         ctx.strokeStyle='#fff'; ctx.lineWidth=4; ctx.strokeRect(SQX, SQY, SQS, SQS);
-        // inner fill subtle
+
         ctx.fillStyle='rgba(255,255,255,0.04)'; ctx.fillRect(SQX, SQY, SQS, SQS);
         const mdl = it.getModel();
         if (mdl){
@@ -490,7 +526,7 @@ function drawMenu() {
           if (!previewMesh || previewMesh.userData.shopId !== it.id) { setPreviewModel(mdl); if(previewMesh) previewMesh.userData.shopId = it.id; }
           try{ previewR.clear(); previewR.render(previewScene, previewCam); ctx.drawImage(previewCv, SQX+6, SQY+6, SQS-12, SQS-12); }catch(e){}
         } else {
-          // ponytail: clear old spinning mesh so battery doesn't show previous gun ghost
+
           if (previewMesh && previewScene) { previewScene.remove(previewMesh); previewMesh = null; }
           if (previewR) try{ previewR.clear(); previewCv.getContext('2d').clearRect(0,0,512,512); }catch(e){}
           ctx.fillStyle='#fff'; ctx.font='500 22px Tomorrow,monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -507,11 +543,11 @@ function drawMenu() {
           const col=idx%COLS, row=Math.floor(idx/COLS);
           const x=OX+col*(CELL_W+GAP), y=OY+row*(CELL_H+GAP);
           const owned=it.owned(); const afford=ccTotal()>=it.price;
-          // cell box is drawn by panelBtn (strokeRect)
+
           const label = owned ? it.title+' ✓' : it.title;
-          // dim owned slightly
+
           panelBtn(menuBtns, x, y, CELL_W, CELL_H, label, function(id){ return function(){ shopSelected=id; drawMenu(); }; }(it.id), false, 18);
-          // price sublabel drawn inside cell footer
+
           ctx.fillStyle = owned ? '#8f8' : (afford ? '#fff' : '#f88');
           ctx.font='600 16px Tomorrow,monospace'; ctx.textAlign='center'; ctx.textBaseline='bottom';
           ctx.fillText(owned ? 'OWNED' : it.price+' CC', x+CELL_W/2, y+CELL_H-10);
@@ -871,31 +907,31 @@ function storyProgress(t) {
   if (t < cumT) return { sec: storySections.length - 1, reveal: storyLen[storySections.length - 1], done: false };
   return { sec: storySections.length - 1, reveal: storyLen[storySections.length - 1], done: true };
 }
-// ponytail: tutorial card — one big card shown after cam + sections, scroll to zoom
+
 let tutLines = [];
 let inTut = false;
 function drawTut() {
   ctx.clearRect(0, 0, CW, CH);
   storyBtns.length = 0;
-  // card bg
+
   const pad = 48, cardX = pad, cardY = 58, cardW = CW - pad * 2, cardH = CH - 140;
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.strokeRect(cardX, cardY, cardW, cardH);
   ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(cardX, cardY, cardW, cardH);
-  // title
+
   ctx.fillStyle = '#fff'; ctx.font = '700 26px Tomorrow,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   textShadow(true); ctx.fillText('TUTORIAL', CW / 2, cardY + 16); textShadow(false);
   ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(cardX + 20, cardY + 48, cardW - 40, 2);
-  // lines
+
   ctx.font = '600 20px Tomorrow,monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   const startY = cardY + 78;
   const lineH = 28;
   tutLines.slice(0, 10).forEach(function(line, i) {
     const y = startY + i * lineH;
     if (y > cardY + cardH - 12) return;
-    // bullet
+
     ctx.fillStyle = '#7eb6f0'; ctx.fillRect(cardX + 28, y - 4, 8, 8);
     ctx.fillStyle = '#fff'; textShadow(true);
-    // wrap if too long
+
     ctx.fillText(line.slice(0, 64), cardX + 48, y); textShadow(false);
   });
   if (!tutLines.length) {
@@ -941,10 +977,12 @@ function drawStory() {
   tex.needsUpdate = true;
 }
 function endStory() {
+  const wasTut = inTut;
   S.story = false;
   S.paused = false;
   inTut = false;
   tutLines = [];
+  if(wasTut) fadeOpening();
   boardHide(storyMesh);
   if (window.__gaultHideSubtitle) window.__gaultHideSubtitle();
   setPauseMenuVisible(false);
@@ -1024,7 +1062,7 @@ function cutHoldIndex(t) {
   return -1;
 }
 function showStoryBoard() {
-  // ponytail: capture tut lines early — shown after sections
+
   tutLines = (S.storyData && S.storyData.tut && S.storyData.tut.length) ? S.storyData.tut.slice() : [];
   inTut = false;
   storySections = (S.storyData && S.storyData.sections) ? S.storyData.sections : FALLBACK_STORY;
@@ -1059,7 +1097,7 @@ export function updateStoryCutscene(dt) {
   S.euler.y = p.yaw;
   S.euler.x = p.pitch;
   camera.quaternion.setFromEuler(S.euler);
-  // ponytail: per-point text during hold (textDur s, 0=hold, 0+no hold = auto)
+
   const hi = cutHoldIndex(cut.t);
   if (hi >= 0 && hi !== cut.lastTextIdx) {
     const pt = cut.pts[hi];
@@ -1067,12 +1105,12 @@ export function updateStoryCutscene(dt) {
       const hold = Math.max(0, pt.hold || 0);
       const td = pt.textDur != null ? +pt.textDur : 0;
       const durMs = td > 0 ? td * 1000 : (hold > 0 ? hold * 1000 : undefined);
-      // dynamic import avoidance: showSubtitle is in ui.js, imported? use global if needed
-      // ponytail: lazy import via window.__gaultShowSubtitle bridge set by ui.js
+
+
       if (window.__gaultShowSubtitle) window.__gaultShowSubtitle(pt.text, durMs);
     }
     cut.lastTextIdx = hi;
-  } else if (hi === -1) { /* travelling — allow next hold to retrigger even if same idx? no, hold idx only fires once per hold */ }
+  } else if (hi === -1) {                                                                                                         }
   return true;
 }
 
@@ -1093,7 +1131,7 @@ function beginStory() {
     cut.pts = cam;
     cut.total = cutTotal(cam);
     cut.active = true; cut.t = 0; cut.lastTextIdx = -1;
-    // show P0 text immediately if it has hold+text
+
     if (cam[0].text && (cam[0].hold || 0) > 0) {
       const td0 = cam[0].textDur != null ? +cam[0].textDur : 0;
       const dur0 = td0 > 0 ? td0 * 1000 : Math.max(0, cam[0].hold || 0) * 1000 || undefined;
@@ -1240,9 +1278,9 @@ window.addEventListener('wheel', function(e) {
     return;
   }
   if (S.hub && view === 'shop' && shopSelected) {
-    // detail has no scroll; wheel zooms
+
   } else if (S.hub && view === 'shop') {
-    // grid fits no scroll
+
     return;
   }
   hubZoom = THREE.MathUtils.clamp(hubZoom - e.deltaY * 0.0012, 0, 1);
@@ -1253,7 +1291,7 @@ window.addEventListener('wheel', function(e) {
 
 (function tickHover() {
   requestAnimationFrame(tickHover);
-  // ponytail: spin shop preview — clear square first so transparent pixels don't ghost
+
   if (view === 'shop' && shopSelected && previewMesh && previewR) {
     previewMesh.rotation.y += 0.018;
     try {
@@ -1298,7 +1336,7 @@ window.addEventListener('wheel', function(e) {
 const PANEL_DIST = 1;
 const _fwd = new THREE.Vector3(), _pos = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 function placePanelFixed(pmesh) {
-  // ponytail: true 3D in-front — keep pitch so an angled cutscene still centers the board
+
   _fwd.set(0, 0, -1).applyEuler(S.euler);
   _pos.copy(camera.position);
   pmesh.position.copy(_pos).addScaledVector(_fwd, PANEL_DIST);
@@ -1400,7 +1438,7 @@ export function showWin() {
   drawWin();
 }
 
-// ponytail: pity skip, flat 500 vault fee then normal win
+
 export function skipMap() {
   if ((S.mapDeaths || 0) <= 3 || S.pvp || S.won) return;
   if (ccTotal() < 500) return;

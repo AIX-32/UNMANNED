@@ -1,13 +1,13 @@
 'use strict';
-// Web Worker - grass blade generation runs here (scatter + terrain sampling) so
-// big "fill unpainted" / "place all" jobs never freeze the studio main thread.
-// Mirrors the sampling math in core.js sampleHeight and the quad emitter in
-// grass.js addQuad (non-indexed, 6 verts/quad), so the main thread can append
-// the returned positions verbatim and derive uvs/normals by pattern.
+
+
+
+
+
 
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-// grid bilinear height sampler - same as core.js sampleHeight
+
 function mkSample(terrain) {
   const segs = terrain.segs, size = terrain.size, W = segs + 1;
   const step = size / segs, half = size / 2, H = terrain.heights;
@@ -20,7 +20,7 @@ function mkSample(terrain) {
   };
 }
 
-// scatter one grass point into the position accumulator (crossed billboard pair)
+
 function scatter(pt, cfg, sample, out) {
   const n = Math.max(2, Math.min(6, cfg.pairs || 3));
   const rad = cfg.radius || 0.6;
@@ -57,14 +57,14 @@ function scatter(pt, cfg, sample, out) {
   }
 }
 
-// one billboard quad as 6 non-indexed verts (order mirrors grass.js addQuad)
+
 function quad(out, x, y0, z, w, h, a) {
   const hx = Math.cos(a) * w / 2, hz = Math.sin(a) * w / 2;
   const X0 = x + hx, X1 = x - hx, Z0 = z + hz, Z1 = z - hz, Y1 = y0 + h;
   out.push(X0, y0, Z0,  X0, Y1, Z0,  X1, y0, Z1,  X0, Y1, Z0,  X1, Y1, Z1,  X1, y0, Z1);
 }
 
-// generate "fill unpainted" candidate points (mirrors grass.js fill spacing)
+
 function pointInPoly(x, z, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -90,10 +90,10 @@ function edgeDist(x, z, poly) {
   return best;
 }
 
-// feathered region fill: sample a jittered grid inside the outline poly, keeping
-// each cell with probability = distance-from-edge / feather (so grass is full in
-// the middle and fades to none at the border). Each surviving point scatters a
-// blade tuft, so edge density drops off naturally.
+
+
+
+
 function regionPoints(poly, cfg, terrain, size, sample) {
   if (poly.length < 3) return [];
   let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity, per = 0, ar = 0;
@@ -106,7 +106,7 @@ function regionPoints(poly, cfg, terrain, size, sample) {
   }
   ar = Math.abs(ar) / 2;
   if (per <= 0 || ar <= 0) return [];
-  // hydraulic radius ~ half the region's thinnest dimension -> feather edge width
+
   const feather = Math.max(0.5, 0.8 * (2 * ar / per));
 
   let step = Math.max(0.2, (cfg.radius || 0.6) * 0.8);
@@ -121,7 +121,7 @@ function regionPoints(poly, cfg, terrain, size, sample) {
       const jz = z + (Math.random() * 2 - 1) * step * 0.35;
       if (!pointInPoly(jx, jz, poly)) continue;
       const d = edgeDist(jx, jz, poly);
-      if (Math.random() > clamp(d / feather, 0, 1)) continue; // sparse near edge
+      if (Math.random() > clamp(d / feather, 0, 1)) continue;
       const h = sample(jx, jz);
       if (h < -2 || h > 12) continue;
       out.push([+jx.toFixed(2), +jz.toFixed(2)]);

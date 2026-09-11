@@ -147,7 +147,7 @@ document.addEventListener('keydown', function(e) {
     else openPause();
   }
 
-  // ponytail: dev cheat — H in the settings unlocks campaign + grants 9k CC
+
   if (e.code === 'KeyH' && !e.repeat && inSettingsView()) cheatUnlockAll();
 });
 document.addEventListener('keyup', function(e) {

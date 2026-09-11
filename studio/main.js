@@ -4,10 +4,11 @@ import { S, HALF, freshMap } from './state.js';
 import * as idb from '../idb.js';
 import { $, status, canvas, renderer, scene, camera, orbit, updateCamera,
          rebuildAll, dump, refreshOutlines, brushRing, propGroup, blockGroup, markGroup,
-         raycaster, mouseNDC, DEFAULT_SCALE, whenAsyncIdle, updateRain,
+         raycaster, mouseNDC, DEFAULT_SCALE, whenAsyncIdle, updateRain, sampleHeight,
          groundDirty, groundTexCanvas, groundTexCtx, saveAutosave } from './core.js';
-import { onMouseDown, makeGhost, clearGhost, aimHit, snapVal, readBlockDef,
+import { onMouseDown, makeGhost, clearGhost, aimHit, snapVal, readBlockDef, rebuildOne,
          applyBrush, endBrushStroke, finishWall, finishSector } from './tools.js';
+import './gizmo.js';
 import { fillModelSelect, handleKey, initUI, updateHint, renderSectorList } from './ui.js';
 import { fillTextureSelect, loadCustomTextures, setPaintDown, applyPaint, endPaintStroke } from './paint.js';
 import { updatePreview } from './story.js';
@@ -35,13 +36,29 @@ addEventListener('mouseup', function() {
   if (orbit.btn === 2 && !orbit.moved && S.tool === 'sector') { finishSector(); if (document.getElementById('sectorList')) renderSectorList(); }
   if (orbit.btn === 2 && !orbit.moved && S.tool === 'grass' && grassRegionActive()) finishGrassRegion();
   orbit.btn = 0;
+
+  if(S.gizmoDrag){
+    S.gizmoDrag=false;
+    const idx = window.__gizmoActiveIdx!=null?window.__gizmoActiveIdx : -1;
+    try{
+      if(window.__gizmoEnd) window.__gizmoEnd();
+
+      const b = idx>=0 ? S.map.blocks[idx] : null;
+      if(b){
+        const m=blockGroup.children[idx];
+        if(m){ m.scale.set(1,1,1); }
+        rebuildOne('block', idx);
+        dump(); saveAutosave(); refreshOutlines();
+      }
+    }catch(e){}
+  }
   finishDrag();
 });
 addEventListener('wheel', function(e) {
 
   const d = camera.getWorldDirection(new THREE.Vector3());
   orbit.pos.addScaledVector(d, (e.deltaY > 0 ? -1 : 1) * 3);
-  // ponytail: no limit - was HALF/60
+
 }, { passive: true });
 
 const keys = S.keys;
@@ -140,7 +157,7 @@ function finishDrag() {
     }, wait);
   }
   whenAsyncIdle(hideLoader);
-  // ponytail: never leave stuck on "loading world" if a _push leaked (huge grass / bad tex)
+
   setTimeout(function() {
     if (!loaderHidden) {
       console.warn('loader fallback — _pend stuck');
@@ -191,8 +208,11 @@ function tick(now) {
         } else if (kind === 'block') {
           const s = readBlockDef([0, 0, 0]);
           S.ghost.scale.set(1, 1, 1);
-          const half = s.prim === 'plane' ? s.size[1] / 2 : (s.prim === 'cyl' ? s.size[1] / 2 : s.size[1] / 2);
-          S.ghost.position.set(snapVal(hit.point.x), snapVal(hit.point.y + half), snapVal(hit.point.z));
+          const half = s.size[1] / 2;
+
+          const isGround = hit.object && hit.object.geometry && hit.object.geometry.type === 'PlaneGeometry';
+          const baseY = isGround ? sampleHeight(hit.point.x, hit.point.z) : hit.point.y;
+          S.ghost.position.set(snapVal(hit.point.x), baseY + half, snapVal(hit.point.z));
         } else {
           S.ghost.position.set(snapVal(hit.point.x), hit.point.y + 2.2, snapVal(hit.point.z));
         }
@@ -234,6 +254,12 @@ function tick(now) {
   })();
 
 
+  if(S.gizmoDrag && window.__gizmoDrag){
+    window.__gizmoDrag();
+    refreshOutlines();
+  } else if(window.__gizmoHover && S.tool==='select' && !S.dragging){
+    window.__gizmoHover();
+  }
   if (S.dragging && (S.selection || (S.multiSel && S.multiSel.length))) {
     raycaster.setFromCamera(mouseNDC.set((S.mouseX / innerWidth) * 2 - 1, -(S.mouseY / innerHeight) * 2 + 1), camera);
     const planeY = S.dragBaseY;
@@ -250,7 +276,7 @@ function tick(now) {
           else if (sel.kind === 'block') m = blockGroup.children[sel.i];
           else if (sel.kind === 'ent') m = entSprite(sel.i);
           if (!m) return;
-          // find start for this sel
+
           let st = null;
           if (S.dragStarts) for (let k = 0; k < S.dragStarts.length; k++) if (S.dragStarts[k] && S.dragStarts[k].s.kind === sel.kind && S.dragStarts[k].s.i === sel.i) st = S.dragStarts[k];
           if (st) { m.position.x = snapVal(st.x + dx); m.position.z = snapVal(st.z + dz); }

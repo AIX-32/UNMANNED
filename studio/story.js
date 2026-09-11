@@ -71,7 +71,7 @@ secTA.addEventListener('input', function() {
 wSections.body.appendChild(secTA);
 wSections.body.appendChild(shint('an intro plays on spawn when sections (or a 2+ point camera path) exist'));
 
-// ponytail: tutorial card — one big card with multiple lines, shown after cam + sections
+
 const wTut = fwin('TUTORIAL CARD (after intro)', 700, 230);
 wTut.win.id = 'storyTutFwin';
 addPinButton(wTut.win);
@@ -94,7 +94,7 @@ wCam.win.style.maxHeight = 'calc(100vh - 80px)';
 wCam.win.style.display = 'none';
 wCam.win.style.flexDirection = 'column';
 addPinButton(wCam.win);
-// make body scroll inside window instead of letting window grow off-screen
+
 const _camBody = wCam.body;
 _camBody.style.display = 'flex'; _camBody.style.flexDirection = 'column'; _camBody.style.gap = '8px';
 _camBody.style.overflowY = 'auto'; _camBody.style.maxHeight = 'calc(100vh - 140px)';
@@ -127,7 +127,7 @@ function camRow(i) {
   const card = document.createElement('div');
   card.style.display = 'flex'; card.style.flexDirection = 'column'; card.style.gap = '0';
   card.style.background = '#262626'; card.style.border = '1px solid #3a3a3a'; card.style.overflow = 'visible'; card.style.flexShrink = '0'; card.style.boxSizing = 'border-box';
-  // header
+
   const head = document.createElement('div');
   head.style.display = 'flex'; head.style.alignItems = 'center'; head.style.justifyContent = 'space-between';
   head.style.padding = '6px 8px'; head.style.background = '#2d2d2d'; head.style.borderBottom = '1px solid #3a3a3a';
@@ -148,7 +148,7 @@ function camRow(i) {
   del.onclick = function() { S.map.story.cam.splice(i, 1); renderCamList(); rebuildStoryViz(); dirty(); };
   head.appendChild(del);
   card.appendChild(head);
-  // body
+
   const body = document.createElement('div');
   body.style.display = 'flex'; body.style.flexDirection = 'column'; body.style.gap = '8px'; body.style.padding = '8px'; body.style.boxSizing = 'border-box';
   function field(labelText, input, hint) {
@@ -213,7 +213,7 @@ export function lerpAng(a, b, t) {
   while (d < -Math.PI) d += 2 * Math.PI;
   return a + d * t;
 }
-// ponytail: hold-aware — timeline is hold0 + sum(d_i + hold_i); holds freeze the camera at P_i
+
 export function camTotal(pts) {
   if (!pts.length) return 0;
   let tot = Math.max(0, pts[0].hold || 0);

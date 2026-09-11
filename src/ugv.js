@@ -101,7 +101,7 @@ function ugvShoot(u) {
   const origin = new THREE.Vector3(u.x, groundHeight(u.x, u.z) + u.top * 0.7, u.z);
   const dir = new THREE.Vector3().subVectors(tgt, origin).normalize();
   const dist = origin.distanceTo(tgt);
-  // ponytail: flat miss chance, ~0 point-blank, retune weights if too easy/hard
+
   const moving = S.keys['KeyW'] || S.keys['KeyA'] || S.keys['KeyS'] || S.keys['KeyD'];
   const missP = THREE.MathUtils.clamp(0.15 + 0.55 * (dist / FIRE_RANGE) + (moving ? 0.15 : 0), 0, 0.85)
     * THREE.MathUtils.clamp((dist - 2) / 7, 0, 1);
@@ -298,7 +298,7 @@ export function heardShot() {
   const near = [];
   ugvs.forEach(function(u) {
     if (u.dead) return;
-    // ponytail: car in sector spoofs perception — use ghost pos for distance
+
     const pp = perceivedPos(u);
     const px = pp[0], pz = pp[1];
     const d = Math.hypot(u.x - px, u.z - pz);
@@ -442,7 +442,7 @@ function clampToPoly(x, z, poly) {
   }
   return q;
 }
-// ponytail: car driving inside a UGV's sector feeds UGVs a ghost position a bit away
+
 function drivingInSector(u) {
   if (!S.carDriving) return false;
   if (u.sector == null) return false;
@@ -454,10 +454,10 @@ function perceivedPos(u) {
   const rx = camera.position.x, rz = camera.position.z;
   if (!drivingInSector(u)) return [rx, rz];
   const now = performance.now() / 1000;
-  // refresh ghost every ~1.8s or if player moved >8m — avoids per-frame thrash
+
   if (u._spoofT == null || now - u._spoofT > 1.8 || Math.hypot(rx - (u._spoofRX || rx), rz - (u._spoofRZ || rz)) > 8) {
     const ang = Math.random() * Math.PI * 2;
-    const dist = 10 + Math.random() * 12; // 10-22m
+    const dist = 10 + Math.random() * 12;
     let sx = rx + Math.cos(ang) * dist;
     let sz = rz + Math.sin(ang) * dist;
     if (u.sectorMask) { const c = clampToPoly(sx, sz, sectorPolys[u.sector]); sx = c[0]; sz = c[1]; }

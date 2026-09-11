@@ -402,7 +402,7 @@ function drawDeath() {
     ctx.fillStyle = '#fff';
     fillLabel(ctx, 'BACK TO HUB', W / 2, ry + rh + 32, bw, 40, 36);
     deathBtns.push({ x: bx, y: ry + rh + 12, w: bw, h: 40, hub: true });
-    // ponytail: pity skip, flat 500 vault fee
+
     if ((S.mapDeaths || 0) > 3) {
       const affordSkip = ccTotal() >= 500;
       const sy = ry + rh + 64;

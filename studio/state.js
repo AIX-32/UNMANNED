@@ -1,11 +1,11 @@
 'use strict';
 
-export const SEGS = 64; // min resolution (200m maps keep this)
+export const SEGS = 64;
 export function segsForSize(sz) {
-  // ~4m/cell so bigger maps get a finer, sculptable grid; 200->64 keeps shipped maps identical
+
   return Math.max(SEGS, Math.min(320, Math.round((Math.max(50, Math.min(1000, sz))) / 4)));
 }
-// ponytail: mutable, follows loaded map via syncSize (segs stay as the map stores)
+
 export let SIZE = 200, HALF = 100;
 export function formulaHeight(x, z) {
   return Math.sin(x * 0.15) * Math.cos(z * 0.11) * 0.35 + Math.sin(x * 0.6 + z * 0.4) * 0.12;
@@ -17,7 +17,7 @@ export function formulaGrid(n, size) {
   }
   return out;
 }
-// bilinear up/down-sample a (srcN+1)^2 height grid to (dstN+1)^2 over normalized coords (resize)
+
 export function bilinearResample(src, srcN, dstN) {
   const sw = srcN + 1, dw = dstN + 1, out = new Array(dw * dw);
   for (let j = 0; j < dw; j++) {

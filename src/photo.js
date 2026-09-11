@@ -4,7 +4,7 @@ import { openPause } from './ui.js';
 
 let savedFov = 70, savedCA = 0.02, savedVhs = 0, savedNoise = 0.03;
 
-// UI
+
 const wrap = document.createElement('div');
 wrap.style.cssText = 'position:fixed;left:12px;top:12px;z-index:30;display:none;flex-direction:column;gap:8px;background:rgba(0,0,0,0.72);border:1px solid #fff;padding:12px;width:260px;font:600 12px Tomorrow,monospace;color:#fff;';
 wrap.innerHTML = `
@@ -68,7 +68,7 @@ export function exitPhoto(){
 }
 
 function takePhoto(){
-  // ponytail: single canvas dump, no extra libs
+
   try{
     const url = renderer.domElement.toDataURL('image/png');
     const a = document.createElement('a');
@@ -78,7 +78,7 @@ function takePhoto(){
     msg.textContent = 'SAVED ✓';
     msg.style.color = '#8f8';
   }catch(e){
-    // fallback: try blob
+
     try{
       renderer.domElement.toBlob(function(blob){
         if (!blob){ msg.textContent='FAILED'; msg.style.color='#f88'; return; }
@@ -92,7 +92,7 @@ function takePhoto(){
   setTimeout(function(){ msg.textContent=''; }, 2000);
 }
 
-// fly
+
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3();
 
 export function requestLock(){
@@ -105,7 +105,7 @@ export function releaseLock(){
   if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
 }
 
-// mouse look while pointer is locked
+
 document.addEventListener('mousemove', function(e){
   if (!S.photo || !S.isLocked) return;
   const sens = 0.002;
@@ -136,7 +136,7 @@ export function updatePhoto(dt){
   }
 }
 
-// wheel zoom in photo
+
 window.addEventListener('wheel', function(e){
   if (!S.photo) return;
   e.preventDefault();

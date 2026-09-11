@@ -189,7 +189,7 @@ const MOVE_FWD = 1.0, MOVE_STRAFE = 0.82, MOVE_BACK = 0.72;
 
 function updatePlayer(dt) {
   if (mortarBlocksMove()) {
-    // planted — WASD drives the mortar reticle, not the feet
+
     vel.set(0,0,0);
     const footY = playerY - eyeCur;
     const floorEye = supportHeight(camera.position.x, camera.position.z, footY) + eyeCur;
@@ -303,7 +303,7 @@ function updatePlayer(dt) {
 }
 
 function updateCameraRig(dt) {
-  // ponytail: bonics zoom — lerp FOV with raise (much stronger)
+
   if(isBonicsActive()){
     const br = bonicsRaiseK();
     let zoomT = S.BASE_FOV - 62 * br;
@@ -312,7 +312,7 @@ function updateCameraRig(dt) {
     const sprintPunch = sprintT * 3 * (1-br);
     camera.fov = S.zoomCur + (S.straf ? 0 : S.fovPunch) * (1-br*0.9) + sprintPunch;
     camera.updateProjectionMatrix();
-    // keep rest of aim handling but skip normal zoom calc
+
     S.recoil.x = THREE.MathUtils.lerp(S.recoil.x, S.recoilT.x, Math.min(1, dt * 18));
     S.recoil.y = THREE.MathUtils.lerp(S.recoil.y, S.recoilT.y, Math.min(1, dt * 18));
     if (S.straf) {
@@ -355,7 +355,11 @@ function updateCameraRig(dt) {
     const wh2 = wallRay.intersectObjects(scene.children, true);
     let nearest2 = 1.3;
     for (let i = 0; i < wh2.length; i++) {
-      if (inGun(wh2[i].object) || wh2[i].object.userData.ground || wh2[i].object.userData.isMortarBoard) continue;
+      const o = wh2[i].object;
+      if (inGun(o) || o.userData.ground || o.userData.isMortarBoard || o.userData.rain) continue;
+
+      let p = o.parent; let isRain = false; while (p) { if (p.userData && p.userData.rain) { isRain = true; break; } p = p.parent; }
+      if (isRain) continue;
       nearest2 = wh2[i].distance; break;
     }
     S.wallProx += (THREE.MathUtils.clamp((1.3 - nearest2) / 0.7, 0, 1) - S.wallProx) * Math.min(1, dt * 10);
@@ -422,7 +426,10 @@ function updateCameraRig(dt) {
   const wh = wallRay.intersectObjects(scene.children, true);
   let nearest = 1.3;
   for (let i = 0; i < wh.length; i++) {
-    if (inGun(wh[i].object) || wh[i].object.userData.ground || wh[i].object.userData.isMortarBoard) continue;
+    const o = wh[i].object;
+    if (inGun(o) || o.userData.ground || o.userData.isMortarBoard || o.userData.rain) continue;
+    let p = o.parent; let isRain = false; while (p) { if (p.userData && p.userData.rain) { isRain = true; break; } p = p.parent; }
+    if (isRain) continue;
     nearest = wh[i].distance; break;
   }
   S.wallProx += (THREE.MathUtils.clamp((1.3 - nearest) / 0.7, 0, 1) - S.wallProx) * Math.min(1, dt * 10);
@@ -538,10 +545,10 @@ function updateViewmodel(dt, now, isMoving) {
     pz -= bThr * 1.4;
     py -= bThr * 0.35;
   }
-  // ponytail: Bonics raise — hands to eyes, then overlay takes over
+
   if(isBonicsActive()){
     const br = bonicsRaiseK();
-    // raise from hands to directly in front of eyes
+
     px = THREE.MathUtils.lerp(px, 0.02, br);
     py = THREE.MathUtils.lerp(py, -0.12, br);
     pz = THREE.MathUtils.lerp(pz, -0.32, br);
@@ -620,8 +627,8 @@ function playTick(dt, now) {
 
   updateTurret(dt);
   updateUgv(dt, now);
-  // ponytail: extract maps win on reaching the zone, others on clearing foes;
-  // radio maps win by collecting every radio (foes no longer need clearing)
+
+
   const foes = ugvCount() + turretCount() + bossCount();
   const cleared = foes > 0 && allUgvsDead() && allTurretsDead() && allBossesDead();
   const hasRadios = radiosPlaced();

@@ -407,7 +407,7 @@ let treeProto = null, treeProtoBox = null;
 const treeList = [];
 let treeChunks = [];
 let treeCount = 0;
-const TREE_CHUNK = 80; // ponytail: chunk → frustum culls whole InstancedMesh off-screen
+const TREE_CHUNK = 80;
 function placeTree(pos, rotYdeg, scale, y, solid) {
   treeList.push({ x: pos[0], z: pos[1], y: y, rotYdeg: rotYdeg || 0, scale: scale, solid: solid, coll: null });
   loadProto('tree.gltf', function(proto) {
@@ -632,9 +632,9 @@ loader.load('assets/models/sun.gltf', function(gltf) {
 
 
 const texCache = {};
-function blockMaterial(color, texture, repeat, prim) {
+function blockMaterial(color, texture, repeat, prim, glow) {
   const mat = new THREE.MeshLambertMaterial({ color: color || '#8a8578' });
-  if (prim === 'plane') { mat.side = THREE.DoubleSide; mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -1; } // ponytail: flush plane on box → z-fight
+  if (prim === 'plane') { mat.side = THREE.DoubleSide; mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -1; }
   if (texture) {
     const t = new THREE.Texture();
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -651,6 +651,16 @@ function blockMaterial(color, texture, repeat, prim) {
       texCache[texture] = img;
     }
     mat.map = t;
+
+    mat.transparent = true;
+    mat.alphaTest = 0.15;
+  }
+
+  if (glow) {
+    const glowCol = new THREE.Color(color || '#8a8578');
+    mat.emissive = glowCol.clone();
+    mat.emissiveIntensity = 1.1;
+    if (mat.map) { mat.emissiveMap = mat.map; }
   }
   return mat;
 }
@@ -660,12 +670,12 @@ export function addBlock(b) {
   if (b.prim === 'plane') geo = new THREE.PlaneGeometry(w, h);
   else if (b.prim === 'cyl') geo = new THREE.CylinderGeometry(w / 2, w / 2, h, 14);
   else geo = new THREE.BoxGeometry(w, h, d);
-  const mat = blockMaterial(b.color, b.texture, b.repeat, b.prim);
+  const mat = blockMaterial(b.color, b.texture, b.repeat, b.prim, !!b.glow);
   const m = new THREE.Mesh(geo, mat);
   m.position.set(b.pos[0], b.pos[1], b.pos[2]);
   m.rotation.y = THREE.MathUtils.degToRad(b.rotY || 0);
-  m.castShadow = true;
-  m.receiveShadow = true;
+  m.castShadow = !b.glow;
+  m.receiveShadow = !b.glow;
   mapGroup.add(m);
   if (b.solid !== false && b.prim !== 'plane') {
     const y0 = b.pos[1] - h / 2, y1 = b.pos[1] + h / 2;
@@ -699,8 +709,8 @@ export function addWall(wall) {
 
 
 let grassChunks = [];
-let grassUnlit = 0; // 0..1 true-color fraction for the current map
-const GRASS_CHUNK = 64; // ponytail: chunk → frustum + distance culled, 64m matches terrain
+let grassUnlit = 0;
+const GRASS_CHUNK = 64;
 function clearGrass() {
   grassChunks.forEach(function(c) { scene.remove(c.mesh); c.mesh.geometry.dispose(); c.mesh.material.dispose(); });
   grassChunks = [];
@@ -720,14 +730,14 @@ function buildGrass() {
   const rad = g.radius || 0.6;
   const perPoint = Math.max(n, Math.round(n * (rad * rad) / 0.36));
   const minGap = 0.5 * (g.size || 0.7);
-  // shared tex/mat per build
+
   const tex = new THREE.Texture();
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   let img = texCache[g.tex];
   if (img) { tex.image = img; tex.needsUpdate = true; }
   else { img = new Image(); img.onload = function() { tex.image = img; tex.needsUpdate = true; }; img.src = g.tex; texCache[g.tex] = img; }
-  // true color (%) = how much stays unlit/full-bright. Low unlit → lit by the real scene
-  // lights (gets the world's orange tint like the ground); high unlit → plain full-color.
+
+
   grassUnlit = Math.max(0, Math.min(1, +(g.unlit ?? 0) || 0));
   let baseMat;
   if (grassUnlit >= 1) {
@@ -746,10 +756,10 @@ function buildGrass() {
       positions.push(x + hx, y0, z + hz,  x + hx, y0 + h, z + hz,  x - hx, y0, z - hz,  x - hx, y0 + h, z - hz);
       uvs.push(1, 0, 1, 1, 0, 0, 0, 1);
       const b = positions.length / 3;
-      // front faces (CCW): lit by the forced-up normal → the ground's orange tint
+
       indices.push(b - 4, b - 3, b - 2,  b - 3, b - 1, b - 2);
-      // back faces: same verts, reversed winding (CW). With FrontSide each side renders as
-      // its own front, and both use the up normal → no dark far side, same as the ground.
+
+
       indices.push(b - 4, b - 2, b - 3,  b - 3, b - 2, b - 1);
     };
     pts.forEach(function(pt) {
@@ -792,7 +802,7 @@ function buildGrass() {
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.frustumCulled = true;
-    // center for distance cull
+
     const parts = key.split(',');
     mesh.userData.chunkX = parseInt(parts[0],10)*GRASS_CHUNK - 1000 + GRASS_CHUNK/2;
     mesh.userData.chunkZ = parseInt(parts[1],10)*GRASS_CHUNK - 1000 + GRASS_CHUNK/2;
@@ -814,12 +824,12 @@ export function updateGrassCull() {
   for (let i = 0; i < grassChunks.length; i++) {
     const c = grassChunks[i];
     const d2 = (c.x - cx)*(c.x - cx) + (c.z - cz)*(c.z - cz);
-    c.mesh.visible = d2 < 19600; // 140^2
+    c.mesh.visible = d2 < 19600;
   }
-  // ponytail: shadows only near (100m) — 2048 shadow map fill is the other big cost
+
   for (let i = 0; i < treeChunks.length; i++) {
     const ch = treeChunks[i];
-    // chunk center approx from first idx
+
     const t = treeList[ch.idxs ? ch.idxs[0] : 0];
     if (!t) continue;
     const d2 = (t.x - cx)*(t.x - cx) + (t.z - cz)*(t.z - cz);
@@ -828,12 +838,12 @@ export function updateGrassCull() {
   }
 }
 
-// ---- rain ---- ponytail: single LineSegments volume around player, 2100 streaks, no texture/shader, migrates via j.rain
+
 let rainLines = null, rainPos = null, rainVel = null, rainLen = null, rainDx = null, rainDz = null;
 const RAIN_COUNT = 2100, RAIN_RAD = 65, RAIN_TOP = 30, RAIN_FALL = 19;
 function makeRain(){
   if (rainLines) return;
-  rainPos = new Float32Array(RAIN_COUNT*6); // 2 verts *3
+  rainPos = new Float32Array(RAIN_COUNT*6);
   rainVel = new Float32Array(RAIN_COUNT);
   rainLen = new Float32Array(RAIN_COUNT);
   rainDx = new Float32Array(RAIN_COUNT);
@@ -844,7 +854,7 @@ function makeRain(){
     const x = cx + Math.cos(ang)*r;
     const z = cz + Math.sin(ang)*r;
     const gh = groundHeight(x,z);
-    // ponytail: triangular y + per-drop drift breaks top sheet
+
     let y = cy - 5 + (Math.random()+Math.random())*0.5*(RAIN_TOP+12);
     if (y < gh + 0.6) y = gh + 0.6 + Math.random()*RAIN_TOP*0.5;
     const v = RAIN_FALL * (0.78 + Math.random()*0.52);
@@ -857,10 +867,12 @@ function makeRain(){
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(rainPos,3));
-  const mat = new THREE.LineBasicMaterial({ color: 0xc9d7f0, transparent:true, opacity:0.38, fog:true, depthWrite:false });
-  // night tint will be updated in updateRain
+  const mat = new THREE.LineBasicMaterial({ color: 0xc9d7f0, transparent:true, opacity:0.38, fog:true, depthWrite:false, depthTest:true });
+
   rainLines = new THREE.LineSegments(geo, mat);
   rainLines.frustumCulled = false;
+  rainLines.renderOrder = 10;
+  rainLines.userData.rain = true;
   scene.add(rainLines);
 }
 function clearRain(){
@@ -877,7 +889,7 @@ export function updateRain(dt){
   if (!rainLines || !rainPos) return;
   const cx = camera.position.x, cz = camera.position.z, cy = camera.position.y;
   const mat = rainLines.material;
-  // gentle night desaturate + much softer opacity so pixel post doesn't crunch it to white dots
+
   const night = typeof nightOn !== 'undefined' ? nightOn : false;
   mat.color.setHex(night ? 0x96a8c8 : 0xc9d7f0);
   mat.opacity = night ? 0.28 : 0.38;
@@ -928,7 +940,7 @@ export function atExtract() {
   return Math.hypot(camera.position.x - e[0], camera.position.z - e[1]) < EXTRACT_R;
 }
 function placeExtract(x, z) {
-  // ponytail: outline via ident rig only
+
   identExtractZone(x, groundHeight(x, z) + 2, z, EXTRACT_R * 2, 4);
 }
 
@@ -968,7 +980,7 @@ export function updateHealthBoxes(dt) {
 }
 
 
-// radio collectibles: float + spin like health boxes; win = grab them all (foes optional)
+
 let radioProto = null;
 const radioPickups = [];
 export let radioTotal = 0;
@@ -1006,7 +1018,7 @@ export function updateRadios(dt) {
   return got;
 }
 
-// ponytail: expose live radios as objective scan entries (no hp) for the radar outline
+
 export function radiosScan() {
   return radioPickups.map(function(p) {
     return { x: p.x, z: p.z, group: p.mesh, ref: p, maxHp: 1, objective: true,
@@ -1033,7 +1045,7 @@ function resetWorld() {
   colliders.length = 0; grid.fill(null);
   treeList.length = 0; treeCount = 0; treeChunks = [];
   bushList.length = 0; bushCount = 0; bushChunks = [];
-  // clear grass chunks (not in mapGroup)
+
   for (let i = 0; i < grassChunks.length; i++) { scene.remove(grassChunks[i].mesh); grassChunks[i].mesh.geometry.dispose(); grassChunks[i].mesh.material.dispose(); }
   grassChunks = [];
   tankModel = null; turretModel = null; tankEntityPos = null;
@@ -1049,7 +1061,7 @@ export function applyMap(j) {
   applyNight(j && j.night, j && j.midnight);
   S.storyData = (j && j.story && (j.story.sections || j.story.cam || j.story.triggers || j.story.tut)) ? j.story : null;
   S.mapCC = 0;
-  // ponytail: deaths survive FULL RESTART (reload), cleared on win
+
   try { S.mapDeaths = parseInt(localStorage.getItem('gault_deaths_' + S.mapName) || '0', 10) || 0; } catch (e) { S.mapDeaths = 0; }
   S.mapBoxes = 0;
   S.mapGrenades = 4;

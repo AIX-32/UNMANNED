@@ -880,7 +880,7 @@ kbd {
   </div>
   <div class="spacer"></div>
   <div class="group" style="border-right:none">
-    <button id="bPixelize">Upload texture</button>
+    <button id="bPixelize">Texture Lab</button>
     <button id="bExport">Export</button>
     <button id="bImport">Import</button>
     <button id="bHelp">?</button>
@@ -999,7 +999,9 @@ kbd {
       <div class="row"><label id="bulkBoxLabel">edit boxes:</label><span style="color:#888;font-size:9px">applies to all selected boxes</span></div>
       <div class="row"><label>color</label><input type="color" id="bulkColor" value="#8a8578"><button id="bulkColorApply">apply</button></div>
       <div class="row"><label>texture</label><select id="bulkTex" style="flex:1"></select><button id="bulkTexApply">apply</button></div>
-      <div class="row" style="color:#888;font-size:9px">Shift/Ctrl+click boxes to multi-select · drag moves all · X/V/[]/-+ affect all</div>
+      <div class="row"><label><input type="checkbox" id="bulkGlow"> glow (self-lit, stays bright at night)</label><button id="bulkGlowApply">apply</button></div>
+      <div class="row" id="boxSizeRow" style="display:none"><label>size</label>w<input type="number" id="boxW" step="0.25" style="width:56px"> h<input type="number" id="boxH" step="0.25" style="width:56px"> <span id="boxDLabel">d</span><input type="number" id="boxD" step="0.25" style="width:56px"></div>
+      <div class="row" style="color:#888;font-size:9px">Shift/Ctrl+click boxes to multi-select · drag gizmo or  ± handles · W/H/D edits selected · glow = emissive</div>
     </div>
   </div>
 </div>
@@ -1049,7 +1051,7 @@ kbd {
           h<input type="number" id="szH" value="2.5" step="0.5">
           d<input type="number" id="szD" value="4" step="0.5">
         </div>
-        <div class="row"><label>color</label><input type="color" id="blockColor" value="#8a8578"></div>
+        <div class="row"><label>color</label><input type="color" id="blockColor" value="#8a8578"><label style="margin-left:auto"><input type="checkbox" id="blockGlow"> glow</label></div>
         <div class="row"><label>texture</label><select id="texSel"></select></div>
         <div class="row"><label>repeat</label>
           u<input type="number" id="repU" value="1" step="0.5" min="0.25">
@@ -1079,7 +1081,7 @@ kbd {
         </select>
         <span style="color:#888">the numbered spawn each team starts at</span>
       </div>
-      <div class="row"><label>scale</label><input type="range" id="placeScale" min="0.2" max="6" step="0.05" value="1"><span id="placeScaleV">1.00</span></div>
+      <div class="row" id="rowScale"><label>scale</label><input type="range" id="placeScale" min="0.2" max="6" step="0.05" value="1"><span id="placeScaleV">1.00</span></div>
       <div class="row"><label>rotY</label><input type="range" id="placeRotY" min="-180" max="180" step="5" value="0"><span id="placeRotYV">0°</span></div>
       <div class="row" style="color:#888">aim + click = stamp (keeps going) · rotY spins the ghost · G snap</div>
   </div>
@@ -1090,15 +1092,16 @@ kbd {
 <!-- ===== pop-up modals ===== -->
 <div class="modal" id="pixelizerModal">
   <div class="modal-box">
-    <div class="modal-head"><h3>TEXTURE PIXELIZER</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-head"><h3>TEXTURE LAB</h3><button class="modal-close" data-close>×</button></div>
     <div class="modal-body">
       <div class="row"><input type="file" id="pixFile" accept="image/*"></div>
       <div class="row"><label>size</label><input type="range" id="pixSize" min="16" max="256" step="16" value="128"><span id="pixSizeV">128</span></div>
       <div class="row"><label>levels</label><input type="range" id="pixLevels" min="2" max="16" step="1" value="6"><span id="pixLevelsV">6</span></div>
       <div class="row"><label style="flex:1"><input type="checkbox" id="pixDither" checked> Bayer dithering</label></div>
-      <div class="row"><label style="flex:1"><input type="checkbox" id="pixNoCrunch" checked> keep original - paint needs the real texture (uncheck to pixelize for blocks)</label></div>
+      <div class="row"><label style="flex:1"><input type="checkbox" id="pixNoCrunch" checked> keep original — preserves transparency (uncheck to pixelize for blocks)</label></div>
       <div class="row"><button id="pixGo">Crunch</button><button id="pixUse" disabled>Use as texture</button><button id="pixDl" disabled>PNG</button></div>
       <div class="row"><canvas id="pixprev" width="64" height="64"></canvas></div>
+      <div class="row" style="color:#888;font-size:10px">Tip: PNGs with transparency work on blocks — transparent pixels become see-through. Use Texture Lab to preview and keep alpha.</div>
     </div>
   </div>
 </div>
@@ -1132,7 +1135,7 @@ kbd {
         <li><b>8 Greenery</b> - floating window: paint forests. pick trees/bushes/both, how many per click, brush radius, tree & bush size ranges. Left-click stamps a spaced grouping so canopies don't overlap</li>
         <li><b>0 Grass</b> - floating window: upload a transparent sprite (grass tuft / wheat stalk), hold LMB + draw to paint billboard grass. Each painted point spawns 2-6 crossed billboard pairs, randomly rotated - all blades render as one merged mesh, so big fields stay fast</li>
         <li><b>Ground</b> - pick or upload a base-ground tile texture + tile size for the map (default is grass); the paint tool still draws on top of it</li>
-        <li><b>Pixelizer</b> - image → downscale + posterize + Bayer dither → usable block texture</li>
+        <li><b>Texture Lab</b> - image → downscale + posterize + Bayer dither → usable block texture (supports transparency)</li>
         <li><b>Ctrl+Z</b> undo · autosave · ▶ Play opens the map in-game</li>
       </ul>
     </div>

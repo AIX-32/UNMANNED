@@ -112,7 +112,7 @@ export function bashThud(hit) {
 
 
 export function reloadSound(i) {
-  if (i === 8) return; // mortar has no reload sound
+  if (i === 8) return;
   if (i === 1 && shotgunReloadBuffer) play(shotgunReloadBuffer, 1);
   else if (i === 2 && sniperReloadBuffer) play(sniperReloadBuffer, 1);
   else play(reloadBuffer, 1);
