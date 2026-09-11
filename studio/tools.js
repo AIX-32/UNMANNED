@@ -116,17 +116,48 @@ function rotYRad() { return THREE.MathUtils.degToRad(parseFloat($('placeRotY').v
 function rotYDeg() { return (parseFloat($('placeRotY').value) || 0) % 360; }
 
 
-export function onMouseDown(btn) {
+export function getSelections() {
+  if (S.multiSel && S.multiSel.length) return S.multiSel;
+  if (S.selection) return [S.selection];
+  return [];
+}
+export function clearSelection() { S.selection = null; S.multiSel = null; showSelInfo(); refreshOutlines(); }
+
+export function onMouseDown(btn, ev) {
   if (btn !== 0) return;
   if (S.tool === 'select') {
     const hit = aimHit(true);
-    if (!hit) { S.selection = null; showSelInfo(); refreshOutlines(); return; }
-    S.selection = pickSelectable(hit.object);
+    const add = !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey));
+    if (!hit) { S.selection = null; S.multiSel = null; showSelInfo(); refreshOutlines(); return; }
+    const pick = pickSelectable(hit.object);
+    if (!pick) { S.selection = null; S.multiSel = null; showSelInfo(); refreshOutlines(); return; }
+    // ponytail: shift/ctrl click toggles multi-select for boxes (and any type)
+    if (add) {
+      let cur = S.multiSel ? S.multiSel.slice() : (S.selection ? [S.selection] : []);
+      const idx = cur.findIndex(function(s) { return s.kind === pick.kind && s.i === pick.i; });
+      if (idx >= 0) cur.splice(idx, 1);
+      else cur.push(pick);
+      if (cur.length <= 1) { S.selection = cur[0] || null; S.multiSel = null; }
+      else { S.multiSel = cur; S.selection = cur[cur.length - 1]; }
+    } else {
+      S.selection = pick;
+      S.multiSel = null;
+    }
     showSelInfo();
     refreshOutlines();
-    if (S.selection && (S.selection.kind === 'prop' || S.selection.kind === 'block' || S.selection.kind === 'ent')) {
+    const sel = S.selection;
+    if (sel && (sel.kind === 'prop' || sel.kind === 'block' || sel.kind === 'ent')) {
       S.dragging = true;
       S.dragBaseY = hit.point.y;
+      // store drag start for multi
+      const all = getSelections();
+      S.dragStarts = all.map(function(s) {
+        if (s.kind === 'prop') return { s: s, x: S.map.props[s.i].pos[0], z: S.map.props[s.i].pos[1] };
+        if (s.kind === 'block') return { s: s, x: S.map.blocks[s.i].pos[0], z: S.map.blocks[s.i].pos[2] };
+        if (s.kind === 'ent') return { s: s, x: S.map.entities[s.i].pos[0], z: S.map.entities[s.i].pos[1] };
+        return null;
+      });
+      S.dragOrigin = { x: hit.point.x, z: hit.point.z };
       pushUndo();
     }
   } else if (S.tool === 'place') {
@@ -295,15 +326,20 @@ export function placeAtGhost() {
 }
 
 export function deleteSelection() {
-  if (!S.selection) return;
-  if (S.selection.kind === 'sector') { const si = S.selection.i; S.selection = null; deleteSector(si); return; }
+  const all = getSelections();
+  if (!all.length) return;
+  if (all.length === 1 && all[0].kind === 'sector') { const si = all[0].i; S.selection = null; S.multiSel = null; deleteSector(si); return; }
   pushUndo();
-  if (S.selection.kind === 'prop') { S.map.props.splice(S.selection.i, 1); }
-  if (S.selection.kind === 'block') { S.map.blocks.splice(S.selection.i, 1); }
-  if (S.selection.kind === 'ent') { S.map.entities.splice(S.selection.i, 1); }
-  if (S.selection.kind === 'route') { S.map.routes.ugv.splice(S.selection.i, 1); rebuildRouteViz(); }
-  if (S.selection.kind === 'wall') { S.map.walls.splice(S.selection.i, 1); rebuildWallViz(); }
-  S.selection = null;
+  // delete from highest index first to keep indices valid
+  const byKind = {};
+  all.forEach(function(s) { (byKind[s.kind] = byKind[s.kind] || []).push(s.i); });
+  Object.keys(byKind).forEach(function(k) { byKind[k].sort(function(a, b) { return b - a; }); });
+  (byKind.prop || []).forEach(function(i) { S.map.props.splice(i, 1); });
+  (byKind.block || []).forEach(function(i) { S.map.blocks.splice(i, 1); });
+  (byKind.ent || []).forEach(function(i) { S.map.entities.splice(i, 1); });
+  (byKind.route || []).forEach(function(i) { S.map.routes.ugv.splice(i, 1); });
+  (byKind.wall || []).forEach(function(i) { S.map.walls.splice(i, 1); });
+  S.selection = null; S.multiSel = null;
   rebuildAll();
   showSelInfo();
   dump();
@@ -311,26 +347,33 @@ export function deleteSelection() {
 }
 
 export function duplicateSelection() {
-  if (!S.selection) return;
+  const all = getSelections();
+  if (!all.length) return;
   pushUndo();
-  if (S.selection.kind === 'prop') {
-    const p = JSON.parse(JSON.stringify(S.map.props[S.selection.i]));
-    p.pos = [p.pos[0] + 2, p.pos[1] + 2];
-    S.map.props.push(p);
-    S.selection = { kind: 'prop', i: S.map.props.length - 1 };
-    buildPropMesh(p);
-  } else if (S.selection.kind === 'block') {
-    const b = JSON.parse(JSON.stringify(S.map.blocks[S.selection.i]));
-    b.pos[0] += b.size[0] + 0.5;
-    S.map.blocks.push(b);
-    S.selection = { kind: 'block', i: S.map.blocks.length - 1 };
-    buildBlockMesh(b);
-  } else if (S.selection.kind === 'ent') {
-    const e = JSON.parse(JSON.stringify(S.map.entities[S.selection.i]));
-    e.pos = [e.pos[0] + 3, e.pos[1] + 3];
-    S.map.entities.push(e);
-    buildEntityVisual(e, S.map.entities.length - 1);
-  }
+  const news = [];
+  all.forEach(function(sel) {
+    if (sel.kind === 'prop') {
+      const p = JSON.parse(JSON.stringify(S.map.props[sel.i]));
+      p.pos = [p.pos[0] + 2, p.pos[1] + 2];
+      S.map.props.push(p);
+      news.push({ kind: 'prop', i: S.map.props.length - 1 });
+      buildPropMesh(p);
+    } else if (sel.kind === 'block') {
+      const b = JSON.parse(JSON.stringify(S.map.blocks[sel.i]));
+      b.pos[0] += b.size[0] + 0.5;
+      S.map.blocks.push(b);
+      news.push({ kind: 'block', i: S.map.blocks.length - 1 });
+      buildBlockMesh(b);
+    } else if (sel.kind === 'ent') {
+      const e = JSON.parse(JSON.stringify(S.map.entities[sel.i]));
+      e.pos = [e.pos[0] + 3, e.pos[1] + 3];
+      S.map.entities.push(e);
+      buildEntityVisual(e, S.map.entities.length - 1);
+      news.push({ kind: 'ent', i: S.map.entities.length - 1 });
+    }
+  });
+  if (news.length === 1) { S.selection = news[0]; S.multiSel = null; }
+  else if (news.length > 1) { S.multiSel = news; S.selection = news[news.length - 1]; }
   refreshOutlines();
   showSelInfo();
   dump();
@@ -339,47 +382,76 @@ export function duplicateSelection() {
 
 
 export function nudgeSelection(dx, dy, dz) {
-  if (!S.selection) return;
+  const all = getSelections();
+  if (!all.length) return;
   const s = S.snapStep || 0.25;
-  if (S.selection.kind === 'prop') {
-    const p = S.map.props[S.selection.i];
-    p.pos[0] += dx * s; p.pos[1] += dz * s;
-    p.y = +(Math.max(0, (p.y != null ? p.y : sampleHeight(p.pos[0], p.pos[1])) + dy * s)).toFixed(2);
-    rebuildOne('prop', S.selection.i);
-  } else if (S.selection.kind === 'block') {
-    const b = S.map.blocks[S.selection.i];
-    b.pos[0] += dx * s; b.pos[1] += dy * s; b.pos[2] += dz * s;
-    rebuildOne('block', S.selection.i);
-  } else if (S.selection.kind === 'ent') {
-    const e = S.map.entities[S.selection.i];
-    e.pos[0] += dx * s; e.pos[1] += dz * s;
-    rebuildOne('entall');
-  } else if (S.selection.kind === 'route') {
-    const p = S.map.routes.ugv[S.selection.i];
-    p[0] += dx * s; p[1] += dz * s;
-    rebuildRouteViz();
-  }
+  let needEnt = false;
+  all.forEach(function(sel) {
+    if (sel.kind === 'prop') {
+      const p = S.map.props[sel.i];
+      p.pos[0] += dx * s; p.pos[1] += dz * s;
+      p.y = +(Math.max(0, (p.y != null ? p.y : sampleHeight(p.pos[0], p.pos[1])) + dy * s)).toFixed(2);
+      rebuildOne('prop', sel.i);
+    } else if (sel.kind === 'block') {
+      const b = S.map.blocks[sel.i];
+      b.pos[0] += dx * s; b.pos[1] += dy * s; b.pos[2] += dz * s;
+      rebuildOne('block', sel.i);
+    } else if (sel.kind === 'ent') {
+      const e = S.map.entities[sel.i];
+      e.pos[0] += dx * s; e.pos[1] += dz * s;
+      needEnt = true;
+    } else if (sel.kind === 'route') {
+      const p = S.map.routes.ugv[sel.i];
+      p[0] += dx * s; p[1] += dz * s;
+    }
+  });
+  if (needEnt) rebuildOne('entall');
+  if (all.some(function(x) { return x.kind === 'route'; })) rebuildRouteViz();
   dump(); saveAutosave(); refreshOutlines();
 }
 export function rotateSelection(deg) {
-  if (!S.selection) return;
-  if (S.selection.kind === 'prop') { S.map.props[S.selection.i].rotY = (Math.round(S.map.props[S.selection.i].rotY || 0) + deg) % 360; rebuildOne('prop', S.selection.i); }
-  else if (S.selection.kind === 'block') { S.map.blocks[S.selection.i].rotY = ((S.map.blocks[S.selection.i].rotY || 0) + deg) % 360; rebuildOne('block', S.selection.i); }
-  else if (S.selection.kind === 'ent') { S.map.entities[S.selection.i].rotY = ((S.map.entities[S.selection.i].rotY || 0) + deg) % 360; rebuildOne('entall'); }
+  const all = getSelections();
+  if (!all.length) return;
+  let needEnt = false;
+  all.forEach(function(sel) {
+    if (sel.kind === 'prop') { S.map.props[sel.i].rotY = (Math.round(S.map.props[sel.i].rotY || 0) + deg) % 360; rebuildOne('prop', sel.i); }
+    else if (sel.kind === 'block') { S.map.blocks[sel.i].rotY = ((S.map.blocks[sel.i].rotY || 0) + deg) % 360; rebuildOne('block', sel.i); }
+    else if (sel.kind === 'ent') { S.map.entities[sel.i].rotY = ((S.map.entities[sel.i].rotY || 0) + deg) % 360; needEnt = true; }
+  });
+  if (needEnt) rebuildOne('entall');
   dump(); saveAutosave(); refreshOutlines();
 }
 export function scaleSelection(k) {
-  if (!S.selection) return;
-  if (S.selection.kind === 'prop') {
-    const p = S.map.props[S.selection.i];
-    p.scale = +Math.max(0.1, (p.scale || 1) * k).toFixed(2);
-    rebuildOne('prop', S.selection.i);
-  } else if (S.selection.kind === 'block') {
-    const b = S.map.blocks[S.selection.i];
-    b.size = b.size.map(function(v) { return +Math.max(0.1, v * k).toFixed(2); });
-    rebuildOne('block', S.selection.i);
-  }
+  const all = getSelections();
+  if (!all.length) return;
+  all.forEach(function(sel) {
+    if (sel.kind === 'prop') {
+      const p = S.map.props[sel.i];
+      p.scale = +Math.max(0.1, (p.scale || 1) * k).toFixed(2);
+      rebuildOne('prop', sel.i);
+    } else if (sel.kind === 'block') {
+      const b = S.map.blocks[sel.i];
+      b.size = b.size.map(function(v) { return +Math.max(0.1, v * k).toFixed(2); });
+      rebuildOne('block', sel.i);
+    }
+  });
   dump(); saveAutosave(); refreshOutlines();
+}
+// bulk edit for boxes - ponytail: minimal, applies to all selected blocks
+export function bulkBoxEdit(opts) {
+  const all = getSelections().filter(function(s) { return s.kind === 'block'; });
+  if (!all.length) return 0;
+  pushUndo();
+  all.forEach(function(sel) {
+    const b = S.map.blocks[sel.i];
+    if (opts.color) b.color = opts.color;
+    if (opts.texture !== undefined) b.texture = opts.texture || '';
+    if (opts.repeat) b.repeat = opts.repeat.slice();
+    if (opts.solid !== undefined) b.solid = !!opts.solid;
+  });
+  all.forEach(function(sel) { rebuildOne('block', sel.i); });
+  dump(); saveAutosave(); refreshOutlines();
+  return all.length;
 }
 export function rebuildOne(kind, i) {
   if (kind === 'prop') {

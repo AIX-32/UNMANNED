@@ -345,14 +345,19 @@ const ASYNC_GRASS_MIN = 500;  // maps with >= this many pts scatter off the main
 
 function ensureCap(need) {
   if (need <= _cap) return;
+  // ponytail: hard cap ~1M verts stays well under WebGL 30M limit and ~15MB
+  const HARD = 1000000;
+  if (need > HARD) { status('grass limit reached — clear some grass'); need = HARD; }
   let nc = _cap || 4096;
   while (nc < need) nc <<= 1;
+  if (nc > HARD) nc = HARD;
+  const oldP = _cap ? _geo.attributes.position.array : null;
+  const oldU = _cap ? _geo.attributes.uv.array : null;
+  const oldN = _cap ? _geo.attributes.normal.array : null;
   const p = new Float32Array(nc * 3), u = new Float32Array(nc * 2), n = new Float32Array(nc * 3);
-  if (_cap) {
-    p.set(_geo.attributes.position.array);
-    u.set(_geo.attributes.uv.array);
-    n.set(_geo.attributes.normal.array);
-  }
+  if (oldP) p.set(oldP.subarray(0, Math.min(oldP.length, nc*3)));
+  if (oldU) u.set(oldU.subarray(0, Math.min(oldU.length, nc*2)));
+  if (oldN) n.set(oldN.subarray(0, Math.min(oldN.length, nc*3)));
   _cap = nc;
   _geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
   _geo.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
@@ -520,8 +525,11 @@ export function applyGrass(dt) {
   }
   if (!strokeUndone) { pushUndo(); strokeUndone = true; }
   const g = ensureGrass();
+  if (g.pts.length >= 8000) { status('grass limit 8000 — clear some'); return; }
   g.pts.push([+hit.point.x.toFixed(2), +hit.point.z.toFixed(2)]);
   if (!_live) { buildGrassMesh(); return; }
+  // ponytail: drop stroke if we'd exceed HARD vert cap
+  if (_used > 7900000) { status('grass vert limit — clear some'); return; }
   scatterPoint(g.pts[g.pts.length - 1], g);
   const now = performance.now();
   if (now - lastRebuild > 120) { lastRebuild = now; flushLive(); }

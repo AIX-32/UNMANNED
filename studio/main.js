@@ -4,7 +4,7 @@ import { S, HALF, freshMap } from './state.js';
 import * as idb from '../idb.js';
 import { $, status, canvas, renderer, scene, camera, orbit, updateCamera,
          rebuildAll, dump, refreshOutlines, brushRing, propGroup, blockGroup, markGroup,
-         raycaster, mouseNDC, DEFAULT_SCALE, whenAsyncIdle,
+         raycaster, mouseNDC, DEFAULT_SCALE, whenAsyncIdle, updateRain,
          groundDirty, groundTexCanvas, groundTexCtx, saveAutosave } from './core.js';
 import { onMouseDown, makeGhost, clearGhost, aimHit, snapVal, readBlockDef,
          applyBrush, endBrushStroke, finishWall, finishSector } from './tools.js';
@@ -27,7 +27,7 @@ canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 canvas.addEventListener('mousedown', function(e) {
   if (e.button === 1) e.preventDefault();
   if (e.button !== 0) { orbit.drag = true; orbit.btn = e.button; orbit.moved = false; return; }
-  onMouseDown(0);
+  onMouseDown(0, e);
 });
 addEventListener('mouseup', function() {
   orbit.drag = false;
@@ -74,32 +74,34 @@ function entSprite(i) {
 function finishDrag() {
   if (!S.dragging) return;
   S.dragging = false;
-  if (!S.selection) return;
-  if (S.selection.kind === 'prop') {
-    const m = propGroup.children[S.selection.i], p = S.map.props[S.selection.i];
-    if (m && p) {
-      p.pos = [+m.position.x.toFixed(2), +m.position.z.toFixed(2)];
-      p.y = +m.position.y.toFixed(2);
-      p.rotY = Math.round(THREE.MathUtils.radToDeg(m.rotation.y));
-    }
-  } else if (S.selection.kind === 'block') {
-    const m = blockGroup.children[S.selection.i], b = S.map.blocks[S.selection.i];
-    if (m && b) {
-      b.pos = [+m.position.x.toFixed(2), +m.position.y.toFixed(2), +m.position.z.toFixed(2)];
-      b.rotY = Math.round(THREE.MathUtils.radToDeg(m.rotation.y));
-    }
-  } else if (S.selection.kind === 'ent') {
-    const e = S.map.entities[S.selection.i];
-    const m = entSprite(S.selection.i);
-    if (m && e) e.pos = [+m.position.x.toFixed(2), +m.position.z.toFixed(2)];
-
-    markGroup.children.forEach(function(c) {
-      if (c !== m && c.isGroup && c.userData.ent === S.selection.i) {
-        c.position.x = m.position.x;
-        c.position.z = m.position.z;
+  const all = (S.multiSel && S.multiSel.length ? S.multiSel : (S.selection ? [S.selection] : []));
+  if (!all.length) return;
+  all.forEach(function(sel) {
+    if (sel.kind === 'prop') {
+      const m = propGroup.children[sel.i], p = S.map.props[sel.i];
+      if (m && p) {
+        p.pos = [+m.position.x.toFixed(2), +m.position.z.toFixed(2)];
+        p.y = +m.position.y.toFixed(2);
+        p.rotY = Math.round(THREE.MathUtils.radToDeg(m.rotation.y));
       }
-    });
-  }
+    } else if (sel.kind === 'block') {
+      const m = blockGroup.children[sel.i], b = S.map.blocks[sel.i];
+      if (m && b) {
+        b.pos = [+m.position.x.toFixed(2), +m.position.y.toFixed(2), +m.position.z.toFixed(2)];
+        b.rotY = Math.round(THREE.MathUtils.radToDeg(m.rotation.y));
+      }
+    } else if (sel.kind === 'ent') {
+      const e = S.map.entities[sel.i];
+      const m = entSprite(sel.i);
+      if (m && e) e.pos = [+m.position.x.toFixed(2), +m.position.z.toFixed(2)];
+      markGroup.children.forEach(function(c) {
+        if (c !== m && c.isGroup && c.userData.ent === sel.i) {
+          c.position.x = m.position.x;
+          c.position.z = m.position.z;
+        }
+      });
+    }
+  });
   dump(); saveAutosave(); refreshOutlines();
 }
 
@@ -127,14 +129,25 @@ function finishDrag() {
   rebuildAll();
   dump();
   updateHint();
-  whenAsyncIdle(function() {
-    if (!loaderEl) return;
+  let loaderHidden = false;
+  function hideLoader() {
+    if (loaderHidden || !loaderEl) return;
+    loaderHidden = true;
     const wait = Math.max(0, 600 - (performance.now() - t0));
     setTimeout(function() {
       loaderEl.classList.add('hide');
       setTimeout(function() { loaderEl.style.display = 'none'; }, 400);
     }, wait);
-  });
+  }
+  whenAsyncIdle(hideLoader);
+  // ponytail: never leave stuck on "loading world" if a _push leaked (huge grass / bad tex)
+  setTimeout(function() {
+    if (!loaderHidden) {
+      console.warn('loader fallback — _pend stuck');
+      try { status('recovered from stuck load — check grass/textures'); } catch(e){}
+      hideLoader();
+    }
+  }, 5000);
 })();
 
 
@@ -156,6 +169,7 @@ function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   if (!updatePreview(dt)) updateCamera(dt);
+  updateRain(dt);
 
 
   if (S.tool === 'place') {
@@ -220,7 +234,7 @@ function tick(now) {
   })();
 
 
-  if (S.dragging && S.selection) {
+  if (S.dragging && (S.selection || (S.multiSel && S.multiSel.length))) {
     raycaster.setFromCamera(mouseNDC.set((S.mouseX / innerWidth) * 2 - 1, -(S.mouseY / innerHeight) * 2 + 1), camera);
     const planeY = S.dragBaseY;
     const dir = raycaster.ray.direction, org = raycaster.ray.origin;
@@ -228,13 +242,20 @@ function tick(now) {
       const t = (planeY - org.y) / dir.y;
       if (t > 0) {
         const px = snapVal(org.x + dir.x * t), pz = snapVal(org.z + dir.z * t);
-        const m = S.selection.kind === 'prop' ? propGroup.children[S.selection.i]
-          : S.selection.kind === 'block' ? blockGroup.children[S.selection.i]
-          : entSprite(S.selection.i);
-        if (m) {
-          m.position.x = px;
-          m.position.z = pz;
-        }
+        const dx = px - S.dragOrigin.x, dz = pz - S.dragOrigin.z;
+        const all = (S.multiSel && S.multiSel.length ? S.multiSel : [S.selection]);
+        all.forEach(function(sel) {
+          let m = null;
+          if (sel.kind === 'prop') m = propGroup.children[sel.i];
+          else if (sel.kind === 'block') m = blockGroup.children[sel.i];
+          else if (sel.kind === 'ent') m = entSprite(sel.i);
+          if (!m) return;
+          // find start for this sel
+          let st = null;
+          if (S.dragStarts) for (let k = 0; k < S.dragStarts.length; k++) if (S.dragStarts[k] && S.dragStarts[k].s.kind === sel.kind && S.dragStarts[k].s.i === sel.i) st = S.dragStarts[k];
+          if (st) { m.position.x = snapVal(st.x + dx); m.position.z = snapVal(st.z + dz); }
+          else { m.position.x = px; m.position.z = pz; }
+        });
         refreshOutlines();
       }
     }

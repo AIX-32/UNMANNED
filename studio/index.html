@@ -900,6 +900,9 @@ kbd {
     <div class="row"><label>midnight</label>
       <label style="margin-left:auto"><input type="checkbox" id="midnightToggle"> almost blind</label>
     </div>
+    <div class="row"><label>rain</label>
+      <label style="margin-left:auto"><input type="checkbox" id="rainToggle"> rain</label>
+    </div>
     <div class="grid2">
       <button id="bNew">New</button>
       <button id="bPlay">▶ Play</button>
@@ -991,6 +994,12 @@ kbd {
     <div class="grid2">
       <button id="bDup">Duplicate (V)</button>
       <button id="bDel" class="danger">Delete (X)</button>
+    </div>
+    <div id="bulkBoxRow" style="display:none;border-top:1px solid #3a3a3a;margin-top:6px;padding-top:6px">
+      <div class="row"><label id="bulkBoxLabel">edit boxes:</label><span style="color:#888;font-size:9px">applies to all selected boxes</span></div>
+      <div class="row"><label>color</label><input type="color" id="bulkColor" value="#8a8578"><button id="bulkColorApply">apply</button></div>
+      <div class="row"><label>texture</label><select id="bulkTex" style="flex:1"></select><button id="bulkTexApply">apply</button></div>
+      <div class="row" style="color:#888;font-size:9px">Shift/Ctrl+click boxes to multi-select · drag moves all · X/V/[]/-+ affect all</div>
     </div>
   </div>
 </div>

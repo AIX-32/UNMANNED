@@ -871,7 +871,51 @@ function storyProgress(t) {
   if (t < cumT) return { sec: storySections.length - 1, reveal: storyLen[storySections.length - 1], done: false };
   return { sec: storySections.length - 1, reveal: storyLen[storySections.length - 1], done: true };
 }
+// ponytail: tutorial card — one big card shown after cam + sections, scroll to zoom
+let tutLines = [];
+let inTut = false;
+function drawTut() {
+  ctx.clearRect(0, 0, CW, CH);
+  storyBtns.length = 0;
+  // card bg
+  const pad = 48, cardX = pad, cardY = 58, cardW = CW - pad * 2, cardH = CH - 140;
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.strokeRect(cardX, cardY, cardW, cardH);
+  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(cardX, cardY, cardW, cardH);
+  // title
+  ctx.fillStyle = '#fff'; ctx.font = '700 26px Tomorrow,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  textShadow(true); ctx.fillText('TUTORIAL', CW / 2, cardY + 16); textShadow(false);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(cardX + 20, cardY + 48, cardW - 40, 2);
+  // lines
+  ctx.font = '600 20px Tomorrow,monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  const startY = cardY + 78;
+  const lineH = 28;
+  tutLines.slice(0, 10).forEach(function(line, i) {
+    const y = startY + i * lineH;
+    if (y > cardY + cardH - 12) return;
+    // bullet
+    ctx.fillStyle = '#7eb6f0'; ctx.fillRect(cardX + 28, y - 4, 8, 8);
+    ctx.fillStyle = '#fff'; textShadow(true);
+    // wrap if too long
+    ctx.fillText(line.slice(0, 64), cardX + 48, y); textShadow(false);
+  });
+  if (!tutLines.length) {
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'center'; ctx.fillText('(no tutorial lines)', CW / 2, cardY + cardH / 2);
+    ctx.textAlign = 'left';
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '500 13px Tomorrow,monospace';
+  ctx.fillText('scroll to zoom', CW / 2, cardY + cardH - 14);
+  panelBtn(storyBtns, 362, 430, 300, 56, 'PROCEED', endStory, false, 24);
+  tex.needsUpdate = true;
+}
+function showTutCard() {
+  inTut = true;
+  placePanelFixed(storyMesh);
+  boardShow(storyMesh);
+  drawTut();
+}
 function drawStory() {
+  if (inTut) { drawTut(); return; }
   ctx.clearRect(0, 0, CW, CH);
   storyBtns.length = 0;
   ctx.textAlign = 'center';
@@ -890,15 +934,22 @@ function drawStory() {
       left -= ls[li].length;
     }
   }
-  if (story.done) panelBtn(storyBtns, 362, 430, 300, 56, 'PROCEED', endStory, false, 24);
+  if (story.done) {
+    if (tutLines.length) panelBtn(storyBtns, 362, 430, 300, 56, 'TUTORIAL →', showTutCard, false, 24);
+    else panelBtn(storyBtns, 362, 430, 300, 56, 'PROCEED', endStory, false, 24);
+  }
   tex.needsUpdate = true;
 }
 function endStory() {
   S.story = false;
   S.paused = false;
+  inTut = false;
+  tutLines = [];
   boardHide(storyMesh);
+  if (window.__gaultHideSubtitle) window.__gaultHideSubtitle();
   setPauseMenuVisible(false);
   hoverLabel = null;
+  camera.fov = 70; camera.updateProjectionMatrix();
   if (S.spawn) {
     camera.position.set(S.spawn[0], S.spawn[1], S.spawn[2]);
     S.euler.set(0, THREE.MathUtils.degToRad(S.spawn[3] || 0), 0, 'YXZ');
@@ -915,36 +966,72 @@ document.addEventListener('keydown', function(e) {
   if (e.code === 'Space' && S.story) { skipStory(); e.preventDefault(); }
 });
 
-const cut = { active: false, t: 0, total: 0, pts: [] };
+const cut = { active: false, t: 0, total: 0, pts: [], lastTextIdx: -1 };
 function lerpAng(a, b, t) {
   let d = b - a;
   while (d > Math.PI) d -= 2 * Math.PI;
   while (d < -Math.PI) d += 2 * Math.PI;
   return a + d * t;
 }
-
+function cutTotal(pts) {
+  if (!pts.length) return 0;
+  let tot = Math.max(0, pts[0].hold || 0);
+  for (let i = 1; i < pts.length; i++) tot += Math.max(0.2, pts[i].d != null ? pts[i].d : 3) + Math.max(0, pts[i].hold || 0);
+  return tot;
+}
 function cutPose(t) {
   const pts = cut.pts;
+  if (!pts.length) return null;
   if (pts.length === 1) return pts[0];
-  const segs = [0];
-  let acc = 0;
-  for (let i = 1; i < pts.length; i++) { acc += Math.max(0.2, pts[i].d != null ? pts[i].d : 3); segs.push(acc); }
-  const tt = Math.min(t, acc);
-  let i = 0;
-  while (i < pts.length - 2 && tt > segs[i + 1]) i++;
-  const t0 = segs[i], t1 = segs[i + 1];
-  const f = t1 > t0 ? Math.min(1, (tt - t0) / (t1 - t0)) : 0;
-  const e = f * f * (3 - 2 * f);
-  const a = pts[Math.max(0, i - 1)], b = pts[i], c = pts[i + 1], d = pts[Math.min(pts.length - 1, i + 2)];
-  const pos = new THREE.Vector3();
-  pos.x = 0.5 * ((2 * b.x) + (-a.x + c.x) * e + (2 * a.x - 5 * b.x + 4 * c.x - d.x) * e * e + (-a.x + 3 * b.x - 3 * c.x + d.x) * e * e * e);
-  pos.y = 0.5 * ((2 * b.y) + (-a.y + c.y) * e + (2 * a.y - 5 * b.y + 4 * c.y - d.y) * e * e + (-a.y + 3 * b.y - 3 * c.y + d.y) * e * e * e);
-  pos.z = 0.5 * ((2 * b.z) + (-a.z + c.z) * e + (2 * a.z - 5 * b.z + 4 * c.z - d.z) * e * e + (-a.z + 3 * b.z - 3 * c.z + d.z) * e * e * e);
-  return { x: pos.x, y: pos.y, z: pos.z, yaw: lerpAng(b.yaw || 0, c.yaw != null ? c.yaw : 0, e), pitch: (b.pitch || 0) + ((c.pitch != null ? c.pitch : 0) - (b.pitch || 0)) * e };
+  let tt = t;
+  const h0 = Math.max(0, pts[0].hold || 0);
+  if (tt < h0) return pts[0];
+  tt -= h0;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.max(0.2, pts[i].d != null ? pts[i].d : 3);
+    const hold = Math.max(0, pts[i].hold || 0);
+    if (tt < d) {
+      const f = Math.min(1, tt / d);
+      const e = f * f * (3 - 2 * f);
+      const a = pts[Math.max(0, i - 1)], b = pts[i - 1], c = pts[i], dd = pts[Math.min(pts.length - 1, i + 1)];
+      const pos = new THREE.Vector3();
+      pos.x = 0.5 * ((2 * b.x) + (-a.x + c.x) * e + (2 * a.x - 5 * b.x + 4 * c.x - dd.x) * e * e + (-a.x + 3 * b.x - 3 * c.x + dd.x) * e * e * e);
+      pos.y = 0.5 * ((2 * b.y) + (-a.y + c.y) * e + (2 * a.y - 5 * b.y + 4 * c.y - dd.y) * e * e + (-a.y + 3 * b.y - 3 * c.y + dd.y) * e * e * e);
+      pos.z = 0.5 * ((2 * b.z) + (-a.z + c.z) * e + (2 * a.z - 5 * b.z + 4 * c.z - dd.z) * e * e + (-a.z + 3 * b.z - 3 * c.z + dd.z) * e * e * e);
+      return { x: pos.x, y: pos.y, z: pos.z, yaw: lerpAng(b.yaw || 0, c.yaw != null ? c.yaw : 0, e), pitch: (b.pitch || 0) + ((c.pitch != null ? c.pitch : 0) - (b.pitch || 0)) * e };
+    }
+    tt -= d;
+    if (tt < hold) return pts[i];
+    tt -= hold;
+  }
+  return pts[pts.length - 1];
+}
+function cutHoldIndex(t) {
+  const pts = cut.pts;
+  if (!pts.length) return -1;
+  let tt = t;
+  const h0 = Math.max(0, pts[0].hold || 0);
+  if (tt < h0) return 0;
+  tt -= h0;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.max(0.2, pts[i].d != null ? pts[i].d : 3);
+    const hold = Math.max(0, pts[i].hold || 0);
+    if (tt < d) return -1;
+    tt -= d;
+    if (tt < hold) return i;
+    tt -= hold;
+  }
+  return -1;
 }
 function showStoryBoard() {
+  // ponytail: capture tut lines early — shown after sections
+  tutLines = (S.storyData && S.storyData.tut && S.storyData.tut.length) ? S.storyData.tut.slice() : [];
+  inTut = false;
   storySections = (S.storyData && S.storyData.sections) ? S.storyData.sections : FALLBACK_STORY;
-  if (!storySections.length) { endStory(); return; }
+  if (!storySections.length) {
+    if (tutLines.length) { showTutCard(); return; }
+    endStory(); return;
+  }
   storyLines = null;
   wrapStory();
   story.start = performance.now(); story.sec = 0; story.reveal = 0; story.done = false; story.last = -1;
@@ -972,27 +1059,47 @@ export function updateStoryCutscene(dt) {
   S.euler.y = p.yaw;
   S.euler.x = p.pitch;
   camera.quaternion.setFromEuler(S.euler);
+  // ponytail: per-point text during hold (textDur s, 0=hold, 0+no hold = auto)
+  const hi = cutHoldIndex(cut.t);
+  if (hi >= 0 && hi !== cut.lastTextIdx) {
+    const pt = cut.pts[hi];
+    if (pt.text) {
+      const hold = Math.max(0, pt.hold || 0);
+      const td = pt.textDur != null ? +pt.textDur : 0;
+      const durMs = td > 0 ? td * 1000 : (hold > 0 ? hold * 1000 : undefined);
+      // dynamic import avoidance: showSubtitle is in ui.js, imported? use global if needed
+      // ponytail: lazy import via window.__gaultShowSubtitle bridge set by ui.js
+      if (window.__gaultShowSubtitle) window.__gaultShowSubtitle(pt.text, durMs);
+    }
+    cut.lastTextIdx = hi;
+  } else if (hi === -1) { /* travelling — allow next hold to retrigger even if same idx? no, hold idx only fires once per hold */ }
   return true;
 }
 
 function hasIntro() {
   if (!S.storyData) return false;
-  return (S.storyData.sections && S.storyData.sections.length) || (S.storyData.cam || []).length >= 2;
+  return (S.storyData.sections && S.storyData.sections.length) || (S.storyData.cam || []).length >= 2 || (S.storyData.tut && S.storyData.tut.length);
 }
 function beginStory() {
   S.story = true;
   S.paused = true;
+  inTut = false; tutZoom = 0; camera.fov = 70; camera.updateProjectionMatrix();
   setPauseMenuVisible(false);
   boardHide(winMesh);
   boardHide(mesh);
   hoverLabel = null;
   const cam = (S.storyData && S.storyData.cam) || [];
   if (cam.length >= 2) {
-
     cut.pts = cam;
-    cut.total = 0;
-    for (let i = 1; i < cam.length; i++) cut.total += Math.max(0.2, cam[i].d != null ? cam[i].d : 3);
-    cut.active = true; cut.t = 0;
+    cut.total = cutTotal(cam);
+    cut.active = true; cut.t = 0; cut.lastTextIdx = -1;
+    // show P0 text immediately if it has hold+text
+    if (cam[0].text && (cam[0].hold || 0) > 0) {
+      const td0 = cam[0].textDur != null ? +cam[0].textDur : 0;
+      const dur0 = td0 > 0 ? td0 * 1000 : Math.max(0, cam[0].hold || 0) * 1000 || undefined;
+      if (window.__gaultShowSubtitle) window.__gaultShowSubtitle(cam[0].text, dur0);
+      cut.lastTextIdx = 0;
+    }
     const p0 = cam[0];
     camera.position.set(p0.x, p0.y, p0.z);
     S.euler.y = p0.yaw || 0;
@@ -1115,7 +1222,15 @@ document.addEventListener('keyup', function(e) { adKeys.delete(e.key.toLowerCase
 
 
 let hubZoom = 0;
+let tutZoom = 0;
 window.addEventListener('wheel', function(e) {
+  if (S.story && inTut) {
+    e.preventDefault();
+    tutZoom = THREE.MathUtils.clamp(tutZoom - e.deltaY * 0.0012, 0, 1);
+    camera.fov = 70 - tutZoom * 38;
+    camera.updateProjectionMatrix();
+    return;
+  }
   if (netOpen()) return;
   if (!(S.hub || pvpLobbyActive())) return;
   e.preventDefault();
@@ -1183,10 +1298,10 @@ window.addEventListener('wheel', function(e) {
 const PANEL_DIST = 1;
 const _fwd = new THREE.Vector3(), _pos = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 function placePanelFixed(pmesh) {
+  // ponytail: true 3D in-front — keep pitch so an angled cutscene still centers the board
   _fwd.set(0, 0, -1).applyEuler(S.euler);
   _pos.copy(camera.position);
   pmesh.position.copy(_pos).addScaledVector(_fwd, PANEL_DIST);
-  pmesh.position.y = _pos.y;
   pmesh.lookAt(_pos);
 }
 

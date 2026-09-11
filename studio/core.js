@@ -303,7 +303,7 @@ export function buildBlockMesh(b) {
   else if (b.prim === 'cyl') geo = new THREE.CylinderGeometry(b.size[0] / 2, b.size[0] / 2, b.size[1], 14);
   else geo = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
   const mat = new THREE.MeshLambertMaterial({ color: b.color || '#8a8578' });
-  if (b.prim === 'plane') mat.side = THREE.DoubleSide;
+  if (b.prim === 'plane') { mat.side = THREE.DoubleSide; mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -1; } // ponytail: flush decal on box face → z-fight, polygonOffset lifts without moving data (migrates old maps)
   if (b.texture) mat.map = makeTex(b.texture, b.repeat ? b.repeat[0] : 1, b.repeat ? b.repeat[1] : 1);
   const m = new THREE.Mesh(geo, mat);
   m.position.set(b.pos[0], b.pos[1], b.pos[2]);
@@ -388,12 +388,34 @@ export function rebuildAll() {
   if (!S.map.splat) S.map.splat = freshSplat();
   if (!S.map.walls) S.map.walls = [];
   if (!S.map.sectors) S.map.sectors = [];
-  if (!S.map.story) S.map.story = { cam: [], sections: [], triggers: [] };
+  if (!S.map.story) S.map.story = { cam: [], sections: [], triggers: [], tut: [] };
+  if (!S.map.story.tut) S.map.story.tut = [];
+  if (!S.map.story.sections) S.map.story.sections = [];
+  if (!S.map.story.cam) S.map.story.cam = [];
+  if (!S.map.story.triggers) S.map.story.triggers = [];
   if (!S.map.grass) S.map.grass = { tex: null, pairs: 3, size: 0.7, height: 1.3, pts: [], unlit: false, radius: 0.6 };
+  // ponytail: guard corrupted autosave with huge grass — keep world loadable
+  if (S.map.grass.pts && S.map.grass.pts.length > 8000) {
+    const was = S.map.grass.pts.length;
+    console.warn('truncating grass pts', was, '→8000');
+    S.map.grass.pts = S.map.grass.pts.slice(0, 8000);
+    status('truncated grass to 8000 points (was ' + was + ')');
+    try { dump(); saveAutosave(); } catch(e){}
+  }
+  // ponytail: guard huge data URL (>2MB) — likely accidental 4K PNG
+  if (S.map.grass.tex && S.map.grass.tex.length > 2_000_000) {
+    console.warn('grass tex too large', S.map.grass.tex.length);
+    S.map.grass.tex = null;
+    S.map.grass.texRaw = null;
+    status('cleared oversized grass sprite — re-upload a 512px image');
+    try { dump(); saveAutosave(); } catch(e){}
+  }
   if (S.map.pvp == null) S.map.pvp = false;
   if (S.map.night == null) S.map.night = false;
   if (S.map.midnight == null) S.map.midnight = false;
+  if (S.map.rain == null) S.map.rain = false;
   setNight(S.map.night, S.map.midnight);
+  setRain(!!S.map.rain);
   resetSplatRuntime();
   clearGroups();
   buildGround();
@@ -507,19 +529,22 @@ let outlineHelpers = [];
 export function refreshOutlines() {
   outlineHelpers.forEach(function(h) { scene.remove(h); });
   outlineHelpers = [];
-  const sel = S.selection;
-  if (!sel) return;
-  let obj = null;
-  if (sel.kind === 'prop' && propGroup.children[sel.i]) obj = propGroup.children[sel.i];
-  if (sel.kind === 'block' && blockGroup.children[sel.i]) obj = blockGroup.children[sel.i];
-  if (sel.kind === 'ent') {
-    for (let k = 0; k < markGroup.children.length; k++)
-      if (markGroup.children[k].isSprite && markGroup.children[k].userData.ent === sel.i) { obj = markGroup.children[k]; break; }
-  }
-  if (!obj) return;
-  const box = new THREE.BoxHelper(obj, 0x5ab4ff);
-  scene.add(box);
-  outlineHelpers.push(box);
+  const all = (S.multiSel && S.multiSel.length ? S.multiSel : (S.selection ? [S.selection] : []));
+  if (!all.length) return;
+  all.forEach(function(sel) {
+    let obj = null;
+    if (sel.kind === 'prop' && propGroup.children[sel.i]) obj = propGroup.children[sel.i];
+    if (sel.kind === 'block' && blockGroup.children[sel.i]) obj = blockGroup.children[sel.i];
+    if (sel.kind === 'ent') {
+      for (let k = 0; k < markGroup.children.length; k++)
+        if (markGroup.children[k].isSprite && markGroup.children[k].userData.ent === sel.i) { obj = markGroup.children[k]; break; }
+    }
+    if (!obj) return;
+    const col = all.length > 1 ? 0xffc84c : 0x5ab4ff;
+    const box = new THREE.BoxHelper(obj, col);
+    scene.add(box);
+    outlineHelpers.push(box);
+  });
 }
 
 
@@ -532,7 +557,7 @@ export function undo() {
   if (!undoStack.length) return status('nothing to undo');
   S.map = JSON.parse(undoStack.pop());
   $('mapName').value = S.map.name;
-  S.selection = null; showSelInfo();
+  S.selection = null; S.multiSel = null; showSelInfo();
   rebuildAll();
   dump();
   saveAutosave();
@@ -541,17 +566,44 @@ export function undo() {
 export function showSelInfo() {
   const el = $('selInfo');
   const sw = $('selFwin');
-  if (sw) sw.style.display = S.selection ? 'block' : 'none';
-  if (!S.selection) { el.textContent = 'nothing selected'; el.style.color = '#888'; return; }
+  const multi = S.multiSel && S.multiSel.length ? S.multiSel : null;
+  const has = !!(multi || S.selection);
+  if (sw) sw.style.display = has ? 'block' : 'none';
+  if (!has) { el.textContent = 'nothing selected'; el.style.color = '#888'; hideBulkBox(); return; }
+  if (multi) {
+    const blocks = multi.filter(function(s) { return s.kind === 'block'; }).length;
+    const other = multi.length - blocks;
+    el.textContent = multi.length + ' selected' + (blocks ? ' — ' + blocks + ' box' + (blocks === 1 ? '' : 'es') : '') + (other ? ' + ' + other + ' other' : '') + ' — Shift/Ctrl+click to toggle, drag moves all';
+    el.style.color = '#ffc84c';
+    showBulkBox(blocks);
+    return;
+  }
   let txt = '';
   if (S.selection.kind === 'prop') { const p = S.map.props[S.selection.i]; txt = 'PROP ' + p.model + ' @ ' + p.pos[0].toFixed(1) + ',' + p.pos[1].toFixed(1) + '  rotY ' + (p.rotY || 0) + '°  scale ' + p.scale; }
   if (S.selection.kind === 'block') { const b = S.map.blocks[S.selection.i]; txt = 'BLOCK ' + b.prim + ' @ ' + b.pos.map(function(v) { return v.toFixed(1); }).join(',') + '  size ' + b.size.join('×'); }
   if (S.selection.kind === 'ent') { const e = S.map.entities[S.selection.i]; txt = 'ENTITY ' + e.kind + ' @ ' + e.pos[0].toFixed(1) + ',' + e.pos[1].toFixed(1); }
   if (S.selection.kind === 'route') txt = 'ROUTE POINT #' + S.selection.i;
   if (S.selection.kind === 'wall') { const w = S.map.walls[S.selection.i]; txt = 'WALL #' + S.selection.i + '  ' + (w.length - 1) + ' segments'; }
+  if (S.selection.kind === 'sector') { const s = (S.map.sectors || [])[S.selection.i]; txt = 'SECTOR #' + S.selection.i + '  ' + ((s && s.pts ? s.pts.length : 0)) + ' pts'; }
   el.textContent = txt;
   el.style.color = '#7fbf4f';
+  const isBox = S.selection.kind === 'block';
+  if (isBox) showBulkBox(1); else hideBulkBox();
 }
+function showBulkBox(n) {
+  const row = $('bulkBoxRow'); if (!row) return;
+  row.style.display = n ? '' : 'none';
+  const lab = $('bulkBoxLabel'); if (lab) lab.textContent = n > 1 ? 'edit ' + n + ' boxes:' : 'edit box:';
+  // sync bulk controls to single selection when n==1
+  if (n === 1) {
+    const b = S.map.blocks[S.selection.i];
+    if (b) {
+      const c = $('bulkColor'); if (c) c.value = b.color || '#8a8578';
+      const t = $('bulkTex'); if (t) t.value = b.texture || '';
+    }
+  }
+}
+function hideBulkBox() { const row = $('bulkBoxRow'); if (row) row.style.display = 'none'; }
 let autosaveT = null;
 export function saveAutosave() {
   clearTimeout(autosaveT);
@@ -740,4 +792,47 @@ export function resetSplatRuntime() { groundTexCanvas = null; groundTexCtx = nul
 export function markGroundDirty() { groundDirty = true; }
 export function syncSplat() {
   if (groundDirty && groundTexCanvas) S.map.groundTex = groundTexCanvas.toDataURL('image/png');
+}
+
+// ---- rain preview ---- ponytail: same volume as game, follows orbit.pos, LineSegments
+let sRainLines = null, sRainPos = null, sRainVel = null, sRainLen = null, sRainDx = null, sRainDz = null;
+const S_RAIN_COUNT = 2100, S_RAIN_RAD = 65, S_RAIN_TOP = 30, S_RAIN_FALL = 19;
+function sMakeRain(){
+  if (sRainLines) return;
+  sRainPos = new Float32Array(S_RAIN_COUNT*6);
+  sRainVel = new Float32Array(S_RAIN_COUNT);
+  sRainLen = new Float32Array(S_RAIN_COUNT);
+  sRainDx = new Float32Array(S_RAIN_COUNT);
+  sRainDz = new Float32Array(S_RAIN_COUNT);
+  const cx = camera.position.x, cz = camera.position.z, cy = camera.position.y;
+  for (let i=0;i<S_RAIN_COUNT;i++){
+    const ang=Math.random()*Math.PI*2, r=Math.sqrt(Math.random())*S_RAIN_RAD;
+    const x = cx + Math.cos(ang)*r;
+    const z = cz + Math.sin(ang)*r;
+    const gh = sampleHeight(x,z);
+    let y = cy - 5 + (Math.random()+Math.random())*0.5*(S_RAIN_TOP+12);
+    if (y < gh+0.6) y = gh+0.6+Math.random()*S_RAIN_TOP*0.5;
+    const v = S_RAIN_FALL*(0.78+Math.random()*0.52);
+    const len = 0.9+Math.random()*0.8+v*0.04;
+    const dx=(Math.random()-0.5)*0.7, dz=(Math.random()-0.5)*0.5;
+    sRainVel[i]=v; sRainLen[i]=len; sRainDx[i]=dx; sRainDz[i]=dz;
+    const j=i*6; sRainPos[j]=x; sRainPos[j+1]=y; sRainPos[j+2]=z; sRainPos[j+3]=x-0.16-dx*0.05; sRainPos[j+4]=y-len; sRainPos[j+5]=z-0.11-dz*0.05;
+  }
+  const geo=new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(sRainPos,3));
+  const mat=new THREE.LineBasicMaterial({ color:0xc9d7f0, transparent:true, opacity:0.38, fog:true, depthWrite:false });
+  sRainLines=new THREE.LineSegments(geo, mat); sRainLines.frustumCulled=false; scene.add(sRainLines);
+}
+function sClearRain(){
+  if (!sRainLines) return;
+  scene.remove(sRainLines); sRainLines.geometry.dispose(); sRainLines.material.dispose();
+  sRainLines=null; sRainPos=null; sRainVel=null; sRainLen=null; sRainDx=null; sRainDz=null;
+}
+export function setRain(on){ if(on) sMakeRain(); else sClearRain(); }
+export function updateRain(dt){
+  if (!sRainLines || !sRainPos) return;
+  const cx=camera.position.x, cz=camera.position.z, cy=camera.position.y;
+  const mat=sRainLines.material; const night=nightOn; mat.color.setHex(night?0x96a8c8:0xc9d7f0); mat.opacity=night?0.28:0.38;
+  const g=sRainLines.geometry.attributes.position; const arr=g.array;
+  const t=Date.now()*0.00012; const windX=Math.sin(t)*0.85+Math.sin(t*1.7)*0.22, windZ=Math.cos(t*0.9)*0.6+Math.cos(t*1.3)*0.18;
+  for(let i=0;i<S_RAIN_COUNT;i++){ const j=i*6; let x=arr[j], y=arr[j+1], z=arr[j+2]; const v=sRainVel[i], len=sRainLen[i], dx=sRainDx[i], dz=sRainDz[i]; y-=v*dt; x+=(windX+dx)*dt; z+=(windZ+dz)*dt; const gh=sampleHeight(x,z); const top=cy+S_RAIN_TOP; const below=y<gh+0.15; const far=(x-cx)*(x-cx)+(z-cz)*(z-cz)>S_RAIN_RAD*S_RAIN_RAD; if(below||far||y<cy-6){ const ang=Math.random()*Math.PI*2, r=Math.sqrt(Math.random())*S_RAIN_RAD; x=cx+Math.cos(ang)*r; z=cz+Math.sin(ang)*r; y=Math.max(top, gh+S_RAIN_TOP*0.6)+Math.random()*6; } arr[j]=x; arr[j+1]=y; arr[j+2]=z; arr[j+3]=x-(windX+dx)*0.09-0.16; arr[j+4]=y-len; arr[j+5]=z-(windZ+dz)*0.09-0.11; } g.needsUpdate=true;
 }

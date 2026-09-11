@@ -36,7 +36,7 @@ export function freshMap(name, size) {
   const n = segsForSize(sz);
   return { name: name || 'map01', terrain: { segs: n, size: sz, heights: formulaGrid(n, sz) },
            props: [], blocks: [], entities: [], routes: { ugv: [] }, walls: [], sectors: [], splat: freshSplat(),
-           grass: freshGrass(), ground: null, story: freshStory(), pvp: false };
+           grass: freshGrass(), ground: null, story: freshStory(), pvp: false, rain: false };
 }
 export function freshGrass() {
   return { tex: null, pairs: 3, size: 0.7, height: 1.3, pts: [], unlit: false, radius: 0.6 };
@@ -45,7 +45,8 @@ export function freshSplat() { return { layers: [], repeats: [], weights: null }
 export function freshStory() {
   return { cam: [],
            sections: [],
-           triggers: [] };
+           triggers: [],
+           tut: [] };
 }
 export function syncSize() {
   const s = (S.map && S.map.terrain && parseFloat(S.map.terrain.size)) || 200;
@@ -57,6 +58,7 @@ export function syncSize() {
 export const S = {
   map: freshMap('map01'),
   selection: null,
+  multiSel: null,
   tool: 'select',
   snapStep: 0,
   brushMode: 'raise',

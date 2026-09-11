@@ -632,8 +632,9 @@ loader.load('assets/models/sun.gltf', function(gltf) {
 
 
 const texCache = {};
-function blockMaterial(color, texture, repeat) {
+function blockMaterial(color, texture, repeat, prim) {
   const mat = new THREE.MeshLambertMaterial({ color: color || '#8a8578' });
+  if (prim === 'plane') { mat.side = THREE.DoubleSide; mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -1; } // ponytail: flush plane on box → z-fight
   if (texture) {
     const t = new THREE.Texture();
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -659,8 +660,7 @@ export function addBlock(b) {
   if (b.prim === 'plane') geo = new THREE.PlaneGeometry(w, h);
   else if (b.prim === 'cyl') geo = new THREE.CylinderGeometry(w / 2, w / 2, h, 14);
   else geo = new THREE.BoxGeometry(w, h, d);
-  const mat = blockMaterial(b.color, b.texture, b.repeat);
-  if (b.prim === 'plane') mat.side = THREE.DoubleSide;
+  const mat = blockMaterial(b.color, b.texture, b.repeat, b.prim);
   const m = new THREE.Mesh(geo, mat);
   m.position.set(b.pos[0], b.pos[1], b.pos[2]);
   m.rotation.y = THREE.MathUtils.degToRad(b.rotY || 0);
@@ -828,6 +828,84 @@ export function updateGrassCull() {
   }
 }
 
+// ---- rain ---- ponytail: single LineSegments volume around player, 2100 streaks, no texture/shader, migrates via j.rain
+let rainLines = null, rainPos = null, rainVel = null, rainLen = null, rainDx = null, rainDz = null;
+const RAIN_COUNT = 2100, RAIN_RAD = 65, RAIN_TOP = 30, RAIN_FALL = 19;
+function makeRain(){
+  if (rainLines) return;
+  rainPos = new Float32Array(RAIN_COUNT*6); // 2 verts *3
+  rainVel = new Float32Array(RAIN_COUNT);
+  rainLen = new Float32Array(RAIN_COUNT);
+  rainDx = new Float32Array(RAIN_COUNT);
+  rainDz = new Float32Array(RAIN_COUNT);
+  const cx = camera.position.x, cz = camera.position.z, cy = camera.position.y;
+  for (let i=0;i<RAIN_COUNT;i++){
+    const ang = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*RAIN_RAD;
+    const x = cx + Math.cos(ang)*r;
+    const z = cz + Math.sin(ang)*r;
+    const gh = groundHeight(x,z);
+    // ponytail: triangular y + per-drop drift breaks top sheet
+    let y = cy - 5 + (Math.random()+Math.random())*0.5*(RAIN_TOP+12);
+    if (y < gh + 0.6) y = gh + 0.6 + Math.random()*RAIN_TOP*0.5;
+    const v = RAIN_FALL * (0.78 + Math.random()*0.52);
+    const len = 0.9 + Math.random()*0.8 + v*0.04;
+    const dx = (Math.random()-0.5)*0.7, dz = (Math.random()-0.5)*0.5;
+    rainVel[i]=v; rainLen[i]=len; rainDx[i]=dx; rainDz[i]=dz;
+    const j=i*6;
+    rainPos[j]=x; rainPos[j+1]=y; rainPos[j+2]=z;
+    rainPos[j+3]=x - 0.16 - dx*0.05; rainPos[j+4]=y-len; rainPos[j+5]=z - 0.11 - dz*0.05;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(rainPos,3));
+  const mat = new THREE.LineBasicMaterial({ color: 0xc9d7f0, transparent:true, opacity:0.38, fog:true, depthWrite:false });
+  // night tint will be updated in updateRain
+  rainLines = new THREE.LineSegments(geo, mat);
+  rainLines.frustumCulled = false;
+  scene.add(rainLines);
+}
+function clearRain(){
+  if (!rainLines) return;
+  scene.remove(rainLines);
+  rainLines.geometry.dispose();
+  rainLines.material.dispose();
+  rainLines=null; rainPos=null; rainVel=null; rainLen=null; rainDx=null; rainDz=null;
+}
+export function setRain(on){
+  if (on) makeRain(); else clearRain();
+}
+export function updateRain(dt){
+  if (!rainLines || !rainPos) return;
+  const cx = camera.position.x, cz = camera.position.z, cy = camera.position.y;
+  const mat = rainLines.material;
+  // gentle night desaturate + much softer opacity so pixel post doesn't crunch it to white dots
+  const night = typeof nightOn !== 'undefined' ? nightOn : false;
+  mat.color.setHex(night ? 0x96a8c8 : 0xc9d7f0);
+  mat.opacity = night ? 0.28 : 0.38;
+  const g = rainLines.geometry.attributes.position;
+  const arr = g.array;
+  const t = Date.now()*0.00012;
+  const windX = Math.sin(t)*0.85 + Math.sin(t*1.7)*0.22, windZ = Math.cos(t*0.9)*0.6 + Math.cos(t*1.3)*0.18;
+  for (let i=0;i<RAIN_COUNT;i++){
+    const j=i*6;
+    let x=arr[j], y=arr[j+1], z=arr[j+2];
+    const v = rainVel[i], len = rainLen[i], dx = rainDx[i], dz = rainDz[i];
+    y -= v*dt;
+    x += (windX+dx)*dt; z += (windZ+dz)*dt;
+    const gh = groundHeight(x,z);
+    const top = cy + RAIN_TOP;
+    const below = y < gh + 0.15;
+    const far = (x-cx)*(x-cx)+(z-cz)*(z-cz) > RAIN_RAD*RAIN_RAD;
+    if (below || far || y < cy - 6){
+      const ang=Math.random()*Math.PI*2, r=Math.sqrt(Math.random())*RAIN_RAD;
+      x = cx + Math.cos(ang)*r; z = cz + Math.sin(ang)*r;
+      y = Math.max(top, gh+RAIN_TOP*0.6) + Math.random()*6;
+    }
+    arr[j]=x; arr[j+1]=y; arr[j+2]=z;
+    arr[j+3]=x - (windX+dx)*0.09 - 0.16; arr[j+4]=y-len; arr[j+5]=z - (windZ+dz)*0.09 - 0.11;
+  }
+  g.needsUpdate = true;
+}
+
 
 
 export function inGrass(x, z) {
@@ -969,7 +1047,7 @@ export function applyMap(j) {
   S.hub = S.mapName === 'hub';
   S.pvp = !!(j && j.pvp);
   applyNight(j && j.night, j && j.midnight);
-  S.storyData = (j && j.story && (j.story.sections || j.story.cam || j.story.triggers)) ? j.story : null;
+  S.storyData = (j && j.story && (j.story.sections || j.story.cam || j.story.triggers || j.story.tut)) ? j.story : null;
   S.mapCC = 0;
   // ponytail: deaths survive FULL RESTART (reload), cleared on win
   try { S.mapDeaths = parseInt(localStorage.getItem('gault_deaths_' + S.mapName) || '0', 10) || 0; } catch (e) { S.mapDeaths = 0; }
@@ -991,6 +1069,7 @@ export function applyMap(j) {
   if (j.fog != null) setFogSlider(j.fog);
   buildGround();
   buildGrass();
+  setRain(!!(j && j.rain));
   (j.props || []).forEach(function(p) { placeProp(p.model, p.pos, p.rotY, p.scale || 1, p.y != null ? p.y : 'drop', p.solid); });
   (j.blocks || []).forEach(addBlock);
   (j.walls || []).forEach(addWall);

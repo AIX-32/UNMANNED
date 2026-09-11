@@ -277,7 +277,7 @@ subMesh.renderOrder = 955;
 subMesh.visible = false;
 scene.add(subMesh);
 let subUntil = 0;
-export function showSubtitle(text) {
+export function showSubtitle(text, durMs) {
   if (!text) return;
   subCtx.clearRect(0, 0, subC.width, subC.height);
   subCtx.textAlign = 'center'; subCtx.textBaseline = 'middle';
@@ -294,8 +294,10 @@ export function showSubtitle(text) {
   lines.slice(0, 2).forEach(function(line, i) { subCtx.fillText(line, subC.width / 2, 28 + i * 42); });
   subTex.needsUpdate = true;
   subMesh.visible = true;
-  subUntil = performance.now() + Math.max(2500, text.length * 55);
+  subUntil = performance.now() + (durMs != null ? durMs : Math.max(2500, text.length * 55));
 }
+window.__gaultShowSubtitle = showSubtitle;
+window.__gaultHideSubtitle = function(){ subMesh.visible = false; subUntil = 0; };
 export function updateSubtitle() {
   if (!subMesh.visible) return;
   if (performance.now() > subUntil) { subMesh.visible = false; return; }

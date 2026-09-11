@@ -4,7 +4,7 @@ import { scene, camera, gunScene, postMat, renderFrame } from './core.js';
 import { S, GUN_POS, GUN_ROT, ADS_POS, ADS_ROT, recoilPivot, inGun, takeLook } from './state.js';
 import { updateFiring, hudInfo, flashSync, FLASH, FLASH_DEBUG, curWeaponName, getGunModel, flash, getMuzzleFlash, reloadK, switchK, getWorldFlash, updateLandingMarker, wgsSpeedBoost, weaponSpeedMul, bashRot, bashThrust, viewPos, viewRot, updateBoxUse, cancelBox, boxDip, boxUseInfo } from './weapons.js';
 import { updateAmmoUI, updateHpUI, updateCcUI, updateRadarUI, updateGrenadeUI, updatePvpHud, updateHudVisibility, setHpFlash, showDeathScreen, hideDeathBoard, flashDbg, placeUIPanels, showSubtitle, updateSubtitle, placeBossHud, updateBoxBar, hideBoxBar, requestGameLock } from './ui.js';
-import { resolveCollisions, updateTurret, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull } from './world.js';
+import { resolveCollisions, updateTurret, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull, updateRain } from './world.js';
 import { updateUgv, allUgvsDead, ugvCount, lowerCert as ugvLowerCert } from './ugv.js';
 import { updateTurrets, allTurretsDead, turretCount, lowerCert as turretLowerCert } from './turret.js';
 import { updateDrone, lowerCert as droneLowerCert } from './drone.js';
@@ -661,6 +661,7 @@ function animate() {
   if (S.hub) {
     updateHubIntro(frameDt);
     camera.quaternion.setFromEuler(S.euler);
+    updateRain(frameDt);
     renderFrame(now);
     return;
   }
@@ -669,6 +670,7 @@ function animate() {
   if (S.pvpLobby) {
     camera.quaternion.setFromEuler(S.euler);
     gunScene.visible = false;
+    updateRain(frameDt);
     renderFrame(now);
     return;
   }
@@ -677,6 +679,7 @@ function animate() {
   if (S.won) {
     camera.quaternion.setFromEuler(S.euler);
     decayCA(frameDt);
+    updateRain(frameDt);
     renderFrame(now);
     return;
   }
@@ -724,12 +727,14 @@ function animate() {
       }
       updateSubtitle();
       if (!S.photo) decayCA(frameDt);
+      updateRain(frameDt);
       placeUIPanels(); renderFrame(now); return;
   }
 
   const n = consumeTicks(frameDt);
   for (let i = 0; i < n; i++) playTick(TICK_DT, now);
   updateGrassCull();
+  updateRain(frameDt);
   renderFrame(now);
 }
 

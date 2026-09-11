@@ -4,11 +4,11 @@ import { S, HALF, SIZE, freshMap, formulaGrid, segsForSize, bilinearResample } f
 import * as idb from '../idb.js';
 import { $, status, show, hide, TEXTURES, MODELS, workLight, toggleNight, setNight, setFogHidden, isFogHidden, setFogSlider, getFogSlider, undo, camera,
          pushUndo, dump, dumpNow, saveAutosave, rebuildAll, brushRing, euler, orbit,
-         setPvpRebuild, addPinButton, isPinned } from './core.js';
+         setPvpRebuild, addPinButton, isPinned, setRain } from './core.js';
 import { clearGhost, makeGhost, deleteSelection, duplicateSelection, rotateSelection,
          scaleSelection, nudgeSelection, setBrushMode, finishWall, backspaceWall,
          finishSector, backspaceSector, deleteSector, autoFindUgvs,
-         generateMountains, bakeStone } from './tools.js';
+         generateMountains, bakeStone, bulkBoxEdit } from './tools.js';
 import { renderLayers, addLayer, clearGroundPaint, refreshGroundMaterial, addCustomTexture } from './paint.js';
 import { setStoryMode } from './story.js';
 import { setGreeneryMode } from './greenery.js';
@@ -102,7 +102,7 @@ export function cycleSnap() {
 export function updateHint() {
   const h = $('hint');
   let t = 'RMB drag = look around · wheel = zoom / fly-dolly · WASD fly (R/F up/down) · arrows look · Shift fast · L = work light · N = night\n';
-  if (S.tool === 'select') t += 'click = pick · drag = move · ←↑↓→ slide · PgUp/Dn lift · [ ] rotate · -/+ scale · V dup · X del';
+  if (S.tool === 'select') t += 'click = pick · Shift/Ctrl+click = add to multi · drag = move all · ←↑↓→ slide · PgUp/Dn lift · [ ] rotate · -/+ scale · V dup · X del · bulk color/texture in Selection panel';
   if (S.tool === 'place') t += 'aim + click = stamp (keeps going) · rotY in panel spins the ghost · 1/2/3/4 tools · G snap';
   if (S.tool === 'terrain') t += 'hold click = sculpt · raise/lower/smooth/flatten in panel · ⛰ generate mountains = ridged ring around the map + stone above the height line';
   if (S.tool === 'paint') t += 'hold click = paint active layer · Alt = erase to grass · layers in panel';
@@ -191,6 +191,7 @@ export function initUI() {
     $('pvpToggle').checked = on;
     $('nightToggle').checked = !!S.map.night;
     $('midnightToggle').checked = !!S.map.midnight;
+    $('rainToggle').checked = !!S.map.rain;
     Array.prototype.forEach.call($('entSel').options, function(o) {
       if (o.value === 'pvp') o.hidden = !on;
       if (o.value === 'player') o.hidden = on;
@@ -219,6 +220,14 @@ export function initUI() {
     syncPvpUi();
     dump(); saveAutosave();
     status(this.checked ? 'midnight - almost blind' : 'midnight off');
+  });
+  $('rainToggle').addEventListener('change', function() {
+    const on = this.checked;
+    S.map.rain = on;
+    setRain(on);
+    syncPvpUi();
+    dump(); saveAutosave();
+    status(on ? 'rain on - saved' : 'rain off');
   });
   $('fogToggle').checked = isFogHidden();
   $('fogToggle').addEventListener('change', function() {
@@ -347,6 +356,34 @@ export function initUI() {
   $('bDup').onclick = duplicateSelection;
   $('bDel').onclick = deleteSelection;
   $('snapBtn').onclick = cycleSnap;
+  // bulk box edit wiring — ponytail: two buttons apply color/texture to all selected boxes
+  (function() {
+    const bc = $('bulkColor'), bt = $('bulkTex'), bca = $('bulkColorApply'), bta = $('bulkTexApply');
+    if (!bca || !bta) return;
+    function fillBulkTex() {
+      const cur = bt.value;
+      bt.innerHTML = '';
+      const none = document.createElement('option'); none.value = ''; none.textContent = '(color only)';
+      bt.appendChild(none);
+      const sel = $('texSel');
+      if (sel) Array.from(sel.options).forEach(function(o) {
+        if (!o.value) return;
+        const c = document.createElement('option'); c.value = o.value; c.textContent = o.textContent;
+        bt.appendChild(c);
+      });
+      if (cur) bt.value = cur;
+    }
+    fillBulkTex();
+    const ts = $('texSel'); if (ts) new MutationObserver(fillBulkTex).observe(ts, { childList: true });
+    bca.onclick = function() {
+      const n = bulkBoxEdit({ color: bc.value });
+      status(n ? 'color → ' + n + ' box' + (n === 1 ? '' : 'es') : 'no boxes selected');
+    };
+    bta.onclick = function() {
+      const n = bulkBoxEdit({ texture: bt.value });
+      status(n ? 'texture → ' + n + ' box' + (n === 1 ? '' : 'es') : 'no boxes selected');
+    };
+  })();
 
 
   $('bAddLayer').addEventListener('click', addLayer);
