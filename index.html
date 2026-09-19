@@ -74,12 +74,21 @@
       font-size: 16px;
       letter-spacing: 0.3em;
     }
+    #splash{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:50;opacity:1;transition:opacity .65s ease}
+    #splash.hide{opacity:0;pointer-events:none}
+    #splashInner{text-align:center}
+    #splashMade{color:rgba(255,255,255,.55);font-family:Tomorrow,monospace;font-weight:400;font-size:11px;letter-spacing:.45em;animation:splashUp .5s ease both}
+    #splashTitle{color:#fff;font-family:Tomorrow,monospace;font-weight:700;font-size:38px;letter-spacing:.18em;line-height:1;margin:14px 0 0;animation:splashTitle .9s .15s cubic-bezier(.2,.8,.2,1) both}
+    #splashTitle span{font-weight:300;color:rgba(255,255,255,.92)}
+    @keyframes splashUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes splashTitle{from{opacity:0;letter-spacing:.55em;filter:blur(7px)}to{opacity:1;letter-spacing:.18em;filter:blur(0)}}
   </style>
 </head>
 
 <body>
-  <div id="info">UNMANNED v0.9.7</div>
+  <div id="info">UNMANNED v0.9.8</div>
   <div id="prompt">CLICK TO START</div>
+  <div id="splash"><div id="splashInner"><div id="splashMade">MADE IN</div><div id="splashTitle">TAMPER <span>ENGINE</span></div></div></div>
   <div id="loader">
     <div id="loaderText">LOADING</div>
   </div>
@@ -116,6 +125,13 @@
       await import('./src/main.js');
     })();
 
+  </script>
+  <script>
+    (function(){
+      var s=document.getElementById('splash');
+      if(!s) return;
+      setTimeout(function(){ s.classList.add('hide'); setTimeout(function(){ s.style.display='none'; }, 700); }, 1400);
+    })();
   </script>
   <script src="vendor/three.min.js"></script>
   <script src="vendor/GLTFLoader.js"></script>

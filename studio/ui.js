@@ -13,6 +13,7 @@ import { renderLayers, addLayer, clearGroundPaint, refreshGroundMaterial, addCus
 import { setStoryMode } from './story.js';
 import { setGreeneryMode } from './greenery.js';
 import { setGrassMode, finishGrassRegion, backspaceGrassRegion, grassRegionActive } from './grass.js';
+import { initMissionEditor, refreshMissionEditor } from './mission.js';
 
 
 document.querySelectorAll('.modal').forEach(function(m) {
@@ -681,6 +682,10 @@ export function initUI() {
   };
   syncPvpUi();
   setPvpRebuild(syncPvpUi);
+  try{ initMissionEditor(); }catch(e){ console.warn('mission editor',e); }
+  // refresh mission on rebuild
+  const _reb = window.__studio ? window.__studio : null;
+  if(window.__renderMission) try{ window.__renderMission(); }catch(e){}
 }
 
 

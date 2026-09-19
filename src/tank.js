@@ -1,6 +1,6 @@
 import { scene, camera } from './core.js';
 import { S } from './state.js';
-import { groundHeight, resolveCollisions, MAP_SPAWNS } from './world.js';
+import { groundHeight, resolveCollisions, MAP_SPAWNS, pointInCollider } from './world.js';
 import { showSubtitle, syncHudPositions } from './ui.js';
 import { damagePlayer, heardShot, damageUgv, ugvList, inUgv } from './ugv.js';
 import { damageTurret, turretList, inTurret } from './turret.js';
@@ -21,7 +21,7 @@ const TANK_FRICTION = 3.2;
 const TANK_TURN_STATIONARY = 0.58;
 const TANK_TURN_MOVING = 0.46;
 const TANK_TURRET_SPEED = 1.9;
-const TURRET_REL_LIMIT = 2.0; // ~115deg each side, can't look fully forward away from back arc limited
+const TURRET_REL_LIMIT = 0.785; // ponytail: was 1.309 (75°) — now 45° each side from rear
 const TURRET_PITCH_UP = 0.28; // ~16deg up
 const TURRET_PITCH_DOWN = -0.32; // ~18deg down
 const TANK_YAW_ACCEL = 1.9;
@@ -83,15 +83,14 @@ function updateAim(c){
   const localTip=new THREE.Vector3(0,0.18,-1.75);
   muzzle.copy(localTip).applyMatrix4(c.turretMesh.matrixWorld);
   _tankEuler.set(c.turretPitch||0, c.turretYaw, 0, 'YXZ'); dir.set(0,0,-1).applyEuler(_tankEuler).normalize();
-  const rc=new THREE.Raycaster(muzzle, dir, 0, 180); rc.camera=camera;
-  const hits=rc.intersectObjects(scene.children,true).filter(function(h){ return !h.object.userData.tank && !h.object.userData.rain && !h.object.userData.ground && !h.object.userData.aim; });
-  let hit=null, hitPos=null;
-  for(let i=0;i<hits.length;i++){ let p=hits[i].object, self=false; while(p){ if(p===c.mesh){ self=true; break; } p=p.parent; } if(!self){ hit=hits[i]; break; } }
-  if(hit) hitPos=hit.point.clone();
-  else {
-    let t=0; for(let i=0;i<90;i++){ const tt=t+2; const atx=muzzle.x+dir.x*tt, atz=muzzle.z+dir.z*tt, aty=muzzle.y+dir.y*tt; const gh=groundHeight(atx,atz); if(aty<=gh){ hitPos=new THREE.Vector3(atx, gh+0.25, atz); break; } t=tt; if(t>180) break; }
-    if(!hitPos) hitPos=muzzle.clone().addScaledVector(dir, 60);
+  // ponytail: was intersectObjects(scene) O(tris) ~20ms — sample colliders+ground instead
+  let hitPos=null;
+  for(let d=2; d<=180; d+=2){
+    const atx=muzzle.x+dir.x*d, atz=muzzle.z+dir.z*d, aty=muzzle.y+dir.y*d;
+    if(pointInCollider(atx, aty, atz)){ hitPos=new THREE.Vector3(atx, aty, atz); break; }
+    const gh=groundHeight(atx,atz); if(aty<=gh){ hitPos=new THREE.Vector3(atx, gh+0.25, atz); break; }
   }
+  if(!hitPos) hitPos=muzzle.clone().addScaledVector(dir, 60);
   aimSprite.position.copy(hitPos);
   // offset slightly toward camera to avoid z-fighting
   const camDir=new THREE.Vector3().subVectors(camera.position, hitPos).normalize().multiplyScalar(0.12);
@@ -135,7 +134,8 @@ function newTank(x,z,yaw){
     cooldown:0,
     lastShake:0,
     audio:null, gain:null,
-    hp:400, maxHp:400, dead:false
+    hp:400, maxHp:400, dead:false,
+    tankR:1.9, tankY0:0, tankY1:2.2
   });
 }
 export function damageTank(dmg, srcPos){
@@ -231,6 +231,7 @@ function bake(){
     c.mesh = m;
     c.py = groundHeight(c.x, c.z) + c.baseY;
     m.position.set(c.x, c.py, c.z);
+    c.tankY0 = groundHeight(c.x,c.z); c.tankY1 = c.tankY0 + 2.6;
     m.traverse(function(o){ o.userData.tank = true; });
     scene.add(m);
   });
@@ -274,6 +275,12 @@ function enter(idx){
   c.turretPitch = 0;
   if(typeof S.tankDriving!=='undefined') S.tankDriving=true;
   S.carDriving = true; // block infantry firing
+  // ponytail: snap chase cam behind tank so it doesn't start inside solid cyl
+  const camDist = 9.5, camHeight = 4.2;
+  const backX = c.x + Math.sin(c.yaw)*camDist, backZ = c.z + Math.cos(c.yaw)*camDist;
+  const camY = (c.py||groundHeight(c.x,c.z)+c.baseY) + camHeight;
+  camera.position.set(backX, camY, backZ);
+  S.euler.y = c.turretYaw; S.euler.x = -0.18;
 }
 export function exitTank(){
   if(!isTankDriving()) return;
@@ -408,6 +415,7 @@ export function updateTanks(dt, now){
       c.mesh.rotation.set(c.pitch, c.yaw, c.roll);
       if(c.turret) c.turret.rotation.y = 0;
       if(c.cooldown>0) c.cooldown = Math.max(0, c.cooldown - dt);
+      c.tankY0 = groundHeight(c.x,c.z); c.tankY1 = c.tankY0 + 2.6;
       continue;
     }
     if(c.cooldown>0) c.cooldown -= dt;
@@ -523,7 +531,7 @@ export function updateTanks(dt, now){
     const fx = fxHill, fz = fzHill;
     const vel = {x: fx*c.speed, z: fz*c.speed};
     const footY = groundHeight(c.x,c.z);
-    const res = resolveCollisions(c.x + vel.x*dt, c.z + vel.z*dt, vel, footY, footY+2.6, 1.9, true);
+    const res = resolveCollisions(c.x + vel.x*dt, c.z + vel.z*dt, vel, footY, footY+2.6, 1.9, true, i);
     const hit = Math.hypot(res[0]-(c.x+vel.x*dt), res[1]-(c.z+vel.z*dt))>0.02;
     if(hit){ c.speed *= 0.28; S.shakeX += (Math.random()-0.5)*0.04; S.shakeY += (Math.random()-0.5)*0.04; }
     c.x = res[0]; c.z = res[1];
@@ -563,6 +571,7 @@ export function updateTanks(dt, now){
     if(c.turret){
       c.turret.rotation.y = THREE.MathUtils.clamp(c.turretYaw - c.yaw, -Math.PI, Math.PI);
     }
+    c.tankY0 = groundHeight(c.x,c.z); c.tankY1 = c.tankY0 + 2.6;
 
     // 3rd person chase cam - clipped // ponytail: ray clip so cam never sinks into hill/wall
     const camDist = 9.5, camHeight = 4.2;
@@ -573,9 +582,18 @@ export function updateTanks(dt, now){
     {
       const lookTmp=new THREE.Vector3(c.x,c.py+1.2,c.z);
       const dirTmp=new THREE.Vector3().subVectors(targetCam, lookTmp).normalize();
-      const rcC=new THREE.Raycaster(lookTmp, dirTmp, 0, camDist+0.5); rcC.camera=camera;
-      const ch=rcC.intersectObjects(scene.children,true).filter(function(h){ return !h.object.userData.tank && h.object.visible && !h.object.userData.rain; });
-      if(ch.length && ch[0].distance < camDist){ const d=Math.max(1.3, ch[0].distance-0.45); targetCam.copy(lookTmp).addScaledVector(dirTmp, d); }
+      // ponytail: was intersectObjects(scene) ~30ms — sample colliders, ignore own tank
+      let clipD = camDist;
+      for (let d = 1.0; d <= camDist; d += 1.0) {
+        const sx = lookTmp.x + dirTmp.x * d, sz = lookTmp.z + dirTmp.z * d, sy = lookTmp.y + dirTmp.y * d;
+        if (pointInCollider(sx, sy, sz)) {
+          const dx0 = sx - c.x, dz0 = sz - c.z;
+          const insideOwn = dx0*dx0+dz0*dz0 < (c.tankR||1.9)*(c.tankR||1.9) && sy >= (c.tankY0||0) && sy <= (c.tankY1||2.6);
+          if (insideOwn) continue;
+          clipD = Math.max(1.3, d - 0.45); break;
+        }
+      }
+      if (clipD < camDist) targetCam.copy(lookTmp).addScaledVector(dirTmp, clipD);
       // ground clip: keep cam above terrain +0.6
       const ghCam=groundHeight(targetCam.x,targetCam.z)+0.7;
       if(targetCam.y < ghCam) targetCam.y = ghCam;

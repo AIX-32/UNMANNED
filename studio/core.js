@@ -452,6 +452,7 @@ export function rebuildAll() {
   if (storyRebuild) storyRebuild();
   if (grassRebuild) grassRebuild();
   if (pvpRebuild) pvpRebuild();
+  if (window.__renderMission) try{ window.__renderMission(); }catch(e){}
 }
 let storyRebuild = null;
 export function setStoryRebuild(fn) { storyRebuild = fn; }

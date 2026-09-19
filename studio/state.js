@@ -34,19 +34,25 @@ export function bilinearResample(src, srcN, dstN) {
 export function freshMap(name, size) {
   const sz = Math.max(50, Math.min(1000, parseFloat(size) || 200));
   const n = segsForSize(sz);
-  return { name: name || 'map01', terrain: { segs: n, size: sz, heights: formulaGrid(n, sz) },
-           props: [], blocks: [], entities: [], routes: { ugv: [] }, walls: [], sectors: [], splat: freshSplat(),
-           grass: freshGrass(), ground: null, story: freshStory(), pvp: false, rain: false };
+  return {
+    name: name || 'map01', terrain: { segs: n, size: sz, heights: formulaGrid(n, sz) },
+    props: [], blocks: [], entities: [], routes: { ugv: [] }, walls: [], sectors: [], splat: freshSplat(),
+    grass: freshGrass(), ground: null, story: freshStory(), pvp: false, rain: false, mission: null
+  };
 }
+export function freshMission() { return { phases: [] }; }
+export function freshPhase() { return { title: 'PHASE ' + ((S.map.mission && S.map.mission.phases.length + 1) || 1), desc: '', sub: '', audio: '', checkpoint: true, win: { clear: true }, spawn: [], waves: [] }; }
 export function freshGrass() {
   return { tex: null, pairs: 3, size: 0.7, height: 1.3, pts: [], unlit: false, radius: 0.6 };
 }
 export function freshSplat() { return { layers: [], repeats: [], weights: null }; }
 export function freshStory() {
-  return { cam: [],
-           sections: [],
-           triggers: [],
-           tut: [] };
+  return {
+    cam: [],
+    sections: [],
+    triggers: [],
+    tut: []
+  };
 }
 export function syncSize() {
   const s = (S.map && S.map.terrain && parseFloat(S.map.terrain.size)) || 200;

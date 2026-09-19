@@ -15,6 +15,7 @@ import { identLock, clearIdentLock } from './ident.js';
 
 export const BOSS_NAME = 'TAT-10';
 export const BOSS_HP = 600;
+function diffMult(){ const k=(S.missionDiff||'normal'); if(k==='easy') return {hp:0.6,dmg:0.6}; if(k==='hard') return {hp:1.35,dmg:1.35}; if(k==='veteran') return {hp:1.7,dmg:1.7}; return {hp:1,dmg:1}; }
 
 
 export const BOSS_FLASH = { pos: [0.012, 2.525, -2.633], size: 0.05 };
@@ -94,7 +95,7 @@ new THREE.GLTFLoader().load('assets/models/missle.gltf', function(gltf) {
 function newBoss(x, z, yaw) {
  const b = {
  x: x, z: z, yaw: yaw || 0,
- hp: BOSS_HP, dead: false,
+ hp: Math.round(BOSS_HP*diffMult().hp), dead: false,
  model: null, baseY: 0, top: 1, muzzleH: 2.5,
  attacking: false, lostT: 0, fireT: 2, noticeT: 0,
  mslT: 3, leftT: 0,
@@ -104,6 +105,36 @@ function newBoss(x, z, yaw) {
  bosses.push(b);
  return b;
 }
+export function spawnMissionBoss(x,z,yaw){
+ if(!proto){ MAP_SPAWNS.bosses.push([x,z,yaw]); return null; }
+ const b=newBoss(x,z,yaw);
+ const m=proto.clone();
+ b.baseY=proto.userData.baseY;
+ m.position.set(b.x, groundHeight(b.x,b.z)+b.baseY, b.z);
+ m.rotation.set(0,b.yaw,0);
+ scene.add(m);
+ m.updateMatrixWorld(true);
+ const bb=new THREE.Box3().setFromObject(m);
+ b.muzzleH=b.baseY+BOSS_FLASH.pos[1];
+ b.top=b.muzzleH/0.7;
+ b.model=m;
+ const as=new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({visible:false}));
+ b.asSize=bb.getSize(new THREE.Vector3());
+ as.scale.copy(b.asSize).multiplyScalar(S.settings.aimAssist);
+ as.position.copy(bb.getCenter(new THREE.Vector3()));
+ m.add(as); b.assistBox=as;
+ const fm=new THREE.SpriteMaterial({map:flashTex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true});
+ const fs=new THREE.Sprite(fm);
+ fs.position.fromArray(BOSS_FLASH.pos);
+ fs.raycast=function(){};
+ fs.visible=false;
+ m.add(fs); b.flashSpr=fs;
+ pushCollider({ type: 'box', minX: bb.min.x, maxX: bb.max.x, minZ: bb.min.z, maxZ: bb.max.z, y0: bb.min.y, y1: Math.min(bb.max.y, b.baseY + 1.9), owner: b });
+ buildUgvGrid();
+ m.visible=true;
+ return b;
+}
+window.__missionSpawnBoss=spawnMissionBoss;
 
 function spawnAll() {
   MAP_SPAWNS.bosses.forEach(function(s) {
@@ -262,7 +293,7 @@ function bossFire(b) {
  b.flashSpr.scale.set(fs, fs, 1);
  b.flashSpr.visible = true;
  }
-  if (!missed && !evadedShot(origin)) damagePlayer(BOSS_DMG, origin);
+   if (!missed && !evadedShot(origin)) damagePlayer(Math.round(BOSS_DMG*diffMult().dmg), origin);
 
   b.spread = Math.min(b.spread + SPREAD_BLOOM, SPREAD_MAX);
 }
@@ -287,7 +318,7 @@ function fireMissile(b, local) {
 function boom(i) {
   const ms = missiles[i];
   clearIdentLock();
-  explodeAt(ms.pos.clone(), MSL_DMG);
+  explodeAt(ms.pos.clone(), Math.round(MSL_DMG*diffMult().dmg));
   scene.remove(ms.m);
   missiles.splice(i, 1);
 }

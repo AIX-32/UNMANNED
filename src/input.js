@@ -1,6 +1,7 @@
 
 import { S } from './state.js';
-import { camera } from './core.js';
+import { camera, renderer } from './core.js';
+import { perf } from './perf.js';
 import { setFiring, switchWeapon, startReload, curWeaponName, FLASH, FLASH_DEBUG, toggleTrace, tryBash, usingBox } from './weapons.js';
 import { throwGrenade } from './grenades.js';
 import { toggleRadar } from './radar.js';
@@ -129,16 +130,34 @@ document.addEventListener('keydown', function(e) {
   }
 
 
-  if (e.code === 'KeyJ' && !e.repeat && window.__gaultTurrets) {
-    const ts = window.__gaultTurrets.map(function(t) {
-      return { x: +t.x.toFixed(2), z: +t.z.toFixed(2), yaw: +(THREE.MathUtils.radToDeg(t.yaw)).toFixed(1), hp: t.hp, dead: t.dead, cert: Math.round(t.cert) };
-    });
-    const out = JSON.stringify({ player: [camera.position.x, camera.position.z, +camera.position.y.toFixed(2)], turrets: ts });
-    console.log(out);
-    navigator.clipboard.writeText(out).then(function() {
-      flashDbg.textContent = 'TURRETS COPIED!';
-      setTimeout(function() { flashDbg.textContent = ''; }, 1200);
-    });
+  if (e.code === 'KeyJ' && !e.repeat) {
+    // ponytail: when FPS counter on, J dumps perf breakdown to console
+    if (S.settings.showFps) {
+      const p = perf;
+      const dump = {
+        fps: p.fps, frame: +p.frame.toFixed(2), tick: +p.tick.toFixed(2), render: +p.render.toFixed(2), grass: +p.grass.toFixed(2), rain: +p.rain.toFixed(2),
+        player: +(p.player||0).toFixed(2), camera: +(p.camera||0).toFixed(2), ugv: +(p.ugv||0).toFixed(2), turret: +(p.turret||0).toFixed(2), drone: +(p.drone||0).toFixed(2), boss: +(p.boss||0).toFixed(2), weapons: +(p.weapons||0).toFixed(2), ident: +(p.ident||0).toFixed(2), gren: +(p.gren||0).toFixed(2), pvpCars: +(p.pvpCars||0).toFixed(2), cars: +(p.cars||0).toFixed(2), tanks: +(p.tanks||0).toFixed(2), pvp: +(p.pvp||0).toFixed(2), rc: +(p.rc||0).toFixed(2), mission: +(p.mission||0).toFixed(2),
+        draws: p.draws, tris: p.tris, map: S.mapName, pos: [ +camera.position.x.toFixed(1), +camera.position.y.toFixed(1), +camera.position.z.toFixed(1) ]
+      };
+      console.log('[PERF DUMP] ' + JSON.stringify(dump, null, 2));
+      console.table(dump);
+      try { console.log('renderer.info', JSON.parse(JSON.stringify(renderer.info.render))); } catch(e2) { console.log('renderer.info', renderer.info.render); }
+      try { navigator.clipboard.writeText(JSON.stringify(dump, null, 2)); } catch(e2) {}
+      flashDbg.textContent = 'PERF DUMPED — see console';
+      setTimeout(function(){ flashDbg.textContent=''; }, 1500);
+      return;
+    }
+    if (window.__gaultTurrets) {
+      const ts = window.__gaultTurrets.map(function(t) {
+        return { x: +t.x.toFixed(2), z: +t.z.toFixed(2), yaw: +(THREE.MathUtils.radToDeg(t.yaw)).toFixed(1), hp: t.hp, dead: t.dead, cert: Math.round(t.cert) };
+      });
+      const out = JSON.stringify({ player: [camera.position.x, camera.position.z, +camera.position.y.toFixed(2)], turrets: ts });
+      console.log(out);
+      navigator.clipboard.writeText(out).then(function() {
+        flashDbg.textContent = 'TURRETS COPIED!';
+        setTimeout(function() { flashDbg.textContent = ''; }, 1200);
+      });
+    }
   }
   if (!e.repeat && e.code === 'Digit6') { const wasArmed = rcArmed(); armRc(); if (!wasArmed && rcArmed()) setFiring(false); return; }
   if (!e.repeat && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4' || e.code === 'Digit5')) {

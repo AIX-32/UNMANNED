@@ -75,6 +75,9 @@ export const S = {
   pendingLoads: 0,
   carDriving: false,
   tankDriving: false,
+
+  missionDiff: 'normal',
+  missionActive: false,
 };
 
 window.__gaultS = S;

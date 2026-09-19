@@ -35,6 +35,7 @@ const CERT_HIT = 70;
 const CERT_DECAY = 2;
 const OVER_SPEED = 1.6;
 const OVER_ACCEL = 1.5;
+function diffMult(){ const k=(S.missionDiff||'normal'); if(k==='easy') return {hp:0.6,dmg:0.6}; if(k==='hard') return {hp:1.35,dmg:1.35}; if(k==='veteran') return {hp:1.7,dmg:1.7}; return {hp:1,dmg:1}; }
 
 let model = null;
 let snd = null;
@@ -96,7 +97,7 @@ function spawn() {
     yaw: Math.random() * Math.PI * 2,
     pitch: 0,
     roll: 0,
-    hp: DRONE_HP,
+    hp: Math.round(DRONE_HP*diffMult().hp),
     dead: false,
     respawnT: 0,
     huntT: HUNT_LOCK,
@@ -109,6 +110,18 @@ function spawn() {
   model.visible = true;
   model.position.copy(d.pos);
 }
+export function spawnMissionDrone(x,z){
+  if(!model){ MAP_SPAWNS.drones.push([x,z]); return null; }
+  // reuse current drone slot: if alive, keep, else spawn at pos
+  MAP_SPAWNS.drones.push([x,z]);
+  if(!d || d.dead){
+    const y=groundHeight(x,z)+4+Math.random()*5;
+    d={ pos:new THREE.Vector3(x,y,z), vel:new THREE.Vector3(), mode:'patrol', wp:new THREE.Vector3(x,y,z), wpT:0,t:0,yaw:Math.random()*Math.PI*2,pitch:0,roll:0,hp:Math.round(DRONE_HP*diffMult().hp), dead:false, respawnT:0,huntT:HUNT_LOCK,invT:0,invX:0,invY:0,invZ:0,spawnX:x,spawnZ:z,cert:5,over:false };
+    model.visible=true; model.position.copy(d.pos);
+  }
+  return d;
+}
+window.__missionSpawnDrone=spawnMissionDrone;
 
 function boomJuice() {
 
@@ -247,7 +260,7 @@ export function updateDrone(dt, now) {
     d.t += dt;
     desired.copy(eye).sub(d.pos).normalize().multiplyScalar(DIVE_SPEED);
     if (d.pos.distanceTo(eye) < RAM_DIST) {
-      explodeAt(d.pos.clone(), 20);
+      explodeAt(d.pos.clone(), Math.round(20*diffMult().dmg));
       boomJuice();
       killDrone();
       return;

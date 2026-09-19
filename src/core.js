@@ -1,4 +1,5 @@
 
+import { perfMark, perfEnd } from './perf.js';
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1512);
 scene.fog = new THREE.FogExp2(0x1a1512, 0.012);
@@ -121,6 +122,7 @@ window.addEventListener('resize', function() {
 
 
 export function renderFrame(now) {
+  perfMark('render');
   frameNow = now;
   postMat.uniforms.uTime.value = now;
   postMat.uniforms.uPix.value.set(rt.width, rt.height);
@@ -149,6 +151,7 @@ export function renderFrame(now) {
   renderer.autoClear = true;
   renderer.setRenderTarget(null);
   renderer.render(postScene, postCam);
+  perfEnd('render');
 }
 
 

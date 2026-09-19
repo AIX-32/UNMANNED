@@ -8,6 +8,8 @@ import { applyAimAssist as applyBossAssist, bossInfo, BOSS_NAME } from './boss.j
 import { radar, batteryMax } from './radar.js';
 import * as idb from '../idb.js';
 import { enterPhoto, isPhoto } from './photo.js';
+import { getMissionDiff, setMissionDiff } from './mission.js';
+import { perf, perfSample } from './perf.js';
 
 
 
@@ -99,6 +101,15 @@ hpHud.runShift = -0.05;
 
 
 
+
+const missionHud = makeHud(0.52, 0.095, -0.21, 0);
+missionHud.mesh.visible=false;
+export function updateMissionHud(text){
+  if(!text){ missionHud.mesh.visible=false; return; }
+  missionHud.mesh.visible=true;
+  missionHud.text=text; drawHud(missionHud); placeHud(missionHud, 0, 0.36);
+}
+export function placeMissionHud(){ if(missionHud.mesh.visible) placeHud(missionHud, 0, 0.36); }
 
 const bossHud = makeHud(0.42, 0.11, -0.21, 0);
 export function drawBossHud() {
@@ -259,6 +270,8 @@ export function updateHudVisibility() {
   grenHud.mesh.visible = play;
   pvpHud.mesh.visible = S.pvp ? play : false;
   boxBarHud.mesh.visible = play;
+  // ponytail: mission hud follows play but also respects S.missionActive
+  missionHud.mesh.visible = play && !!S.missionActive;
   hpVignette.style.opacity = play ? hpVignette.style.opacity : '0';
 }
 const hpVignette = document.createElement('div');
@@ -555,7 +568,7 @@ function menuCheck(x, y, w, h, label, checked) {
   return { x, y, w, h, kind: 'check', label };
 }
 
-function menuStepper(x, y, w, h, label, value) {
+function menuStepper(x, y, w, h, label, value, kind) {
   const ctx = menuCtx;
   ctx.fillStyle = '#fff';
   ctx.font = '500 26px Tomorrow,monospace';
@@ -566,8 +579,9 @@ function menuStepper(x, y, w, h, label, value) {
   ctx.font = '500 30px Tomorrow,monospace';
   ctx.fillText(value, x + w * 0.52, y + h / 2);
   const bw = 58, by = y + 6, bh = h - 12;
-  menuBtns.push(menuBtn(x + w - 24 - bw, by, bw, bh, '−', 'dec'));
-  menuBtns.push(menuBtn(x + w - 24 - bw * 2 - 12, by, bw, bh, '+', 'inc'));
+  const kk = kind || '';
+  menuBtns.push(menuBtn(x + w - 24 - bw, by, bw, bh, '−', kk ? kk+'_dec' : 'dec'));
+  menuBtns.push(menuBtn(x + w - 24 - bw * 2 - 12, by, bw, bh, '+', kk ? kk+'_inc' : 'inc'));
   ctx.textAlign = 'left';
 }
 function drawMenu() {
@@ -588,13 +602,14 @@ function drawMenu() {
     ctx.font = TITLE_FONT;
     ctx.textBaseline = 'middle';
     ctx.fillText('SETTINGS', W / 2, 90);
-    menuBtns.push(menuCheck(280, 132, 460, 54, 'ALWAYS-ON STRAF', S.settings.strafLock));
-    menuBtns.push(menuCheck(280, 190, 460, 54, 'LAPTOP MODE', S.settings.laptop));
-    menuBtns.push(menuCheck(280, 248, 460, 54, 'BRAIN ASSIST', S.settings.brain));
-    menuBtns.push(menuCheck(280, 306, 460, 54, 'FPS COUNTER', S.settings.showFps));
-    menuStepper(280, 364, 460, 54, 'AIM ASSIST', S.settings.aimAssist.toFixed(2));
-    menuBtns.push(menuBtn(280, 422, 460, 46, 'RESET AIM ASSIST', 'btn'));
-    menuBtns.push(menuBtn(280, 472, 460, 40, 'BACK', 'btn'));
+    menuBtns.push(menuCheck(280, 132, 460, 48, 'ALWAYS-ON STRAF', S.settings.strafLock));
+    menuBtns.push(menuCheck(280, 180, 460, 48, 'LAPTOP MODE', S.settings.laptop));
+    menuBtns.push(menuCheck(280, 228, 460, 48, 'BRAIN ASSIST', S.settings.brain));
+    menuBtns.push(menuCheck(280, 276, 460, 48, 'FPS COUNTER', S.settings.showFps));
+    menuStepper(280, 324, 460, 48, 'DIFFICULTY', getMissionDiff().toUpperCase(), 'diff');
+    menuStepper(280, 372, 460, 48, 'AIM ASSIST', S.settings.aimAssist.toFixed(2), 'aim');
+    menuBtns.push(menuBtn(280, 422, 460, 38, 'RESET AIM ASSIST', 'btn'));
+    menuBtns.push(menuBtn(280, 464, 460, 36, 'BACK', 'btn'));
   }
   menuTex.needsUpdate = true;
 }
@@ -660,6 +675,23 @@ export function openSettings() {
 }
 function fireMenuButton(b) {
   const AIM_MIN = 0, AIM_MAX = 10, AIM_STEP = 0.1, AIM_DEFAULT = 1.12;
+  if (b.kind === 'aim_dec' || b.kind === 'aim_inc') {
+    S.settings.aimAssist = Math.round((S.settings.aimAssist + (b.kind === 'aim_inc' ? AIM_STEP : -AIM_STEP)) * 100) / 100;
+    S.settings.aimAssist = Math.min(AIM_MAX, Math.max(AIM_MIN, S.settings.aimAssist));
+    idb.set('gault_aimassist', String(S.settings.aimAssist));
+    applyUgvAssist(); applyDroneAssist(); applyTurretAssist(); applyBossAssist();
+    drawMenu();
+    return;
+  }
+  if (b.kind === 'diff_dec' || b.kind === 'diff_inc') {
+    const order=['easy','normal','hard','veteran'];
+    let idx=order.indexOf(getMissionDiff());
+    if(idx<0) idx=1;
+    idx = (idx + (b.kind==='diff_inc'?1:-1) + order.length) % order.length;
+    setMissionDiff(order[idx]);
+    drawMenu();
+    return;
+  }
   if (b.kind === 'dec' || b.kind === 'inc') {
     S.settings.aimAssist = Math.round((S.settings.aimAssist + (b.kind === 'inc' ? AIM_STEP : -AIM_STEP)) * 100) / 100;
     S.settings.aimAssist = Math.min(AIM_MAX, Math.max(AIM_MIN, S.settings.aimAssist));
@@ -809,7 +841,7 @@ function hudNdcToOffset(ndcX, ndcY) {
 function hudPlace() {
   for (const k in hudLayout) placeHud(hudPanels[k], hudLayout[k][0], hudLayout[k][1]);
 }
-export function syncHudPositions() { hudPlace(); if (bossHud.mesh.visible) placeBossHud(); if (subMesh.visible) updateSubtitle(); }
+export function syncHudPositions() { hudPlace(); if (bossHud.mesh.visible) placeBossHud(); if (missionHud.mesh.visible) placeMissionHud(); if (subMesh.visible) updateSubtitle(); }
 function hudEditTick() { hudPlace(); }
 function hudJson() {
   const o = {};
@@ -868,23 +900,61 @@ if (hudEdit) {
   hudRefresh();
 }
 
-// ponytail: fps counter beside version in left bottom corner
+// ponytail: fps counter + perf breakdown — single overlay, no deps
 const _infoEl = document.getElementById('info');
 const _infoBase = _infoEl ? _infoEl.textContent.trim() : 'UNMANNED v0.9.7';
-let _fps = 0, _fpsFrames = 0, _fpsLast = performance.now();
+// ponytail: extra perf details under #info when FPS on
+const _perfEl = document.createElement('div');
+_perfEl.id = 'perfDetails';
+_perfEl.style.cssText = 'position:fixed;bottom:36px;left:20px;z-index:10;color:#9f9;font:500 10px Tomorrow,monospace;white-space:pre;pointer-events:none;text-shadow:0 0 3px #000;display:none;line-height:1.4;';
+document.body.appendChild(_perfEl);
+function _fmt(n){ return isFinite(n) ? n.toFixed(1) : '-'; }
 function _updateInfo() {
   if (!_infoEl) return;
-  _infoEl.textContent = S.settings.showFps ? _infoBase + ' · ' + _fps + ' FPS' : _infoBase;
+  if (!S.settings.showFps) { _infoEl.textContent = _infoBase; _perfEl.style.display = 'none'; return; }
+  _infoEl.textContent = _infoBase + ' · ' + perf.fps + ' FPS · ' + _fmt(perf.frame) + 'ms';
+  const parts = [];
+  const add = (k,label, warn) => {
+    const v = perf[k] || 0;
+    const txt = label + ' ' + _fmt(v);
+    parts.push(v > warn ? txt + '*' : txt);
+  };
+  add('tick','tick',6); add('render','render',8); add('grass','grass',1.5); add('rain','rain',1.5);
+  let line1 = parts.join(' · ') + ' · draws ' + (perf.draws||0) + ' tris ' + (perf.tris ? (perf.tris>1000? (perf.tris/1000).toFixed(1)+'k' : perf.tris) : 0);
+  // ponytail: when tick is huge, show which subsystem inside tick is hot
+  const subKeys = ['player','camera','ugv','turret','drone','boss','weapons','ident','gren','pvpCars','cars','tanks','pvp','rc','mission','mortar','pickups','triggers','postFx'];
+  const subs = subKeys.map(k=>({k, v: perf[k]||0})).filter(o=>o.v>0.3).sort((a,b)=>b.v-a.v).slice(0,4);
+  let line2 = '';
+  if (subs.length && (perf.tick||0) > 8) {
+    line2 = 'tick breakdown: ' + subs.map(o=> o.k + ' ' + _fmt(o.v)).join(' · ');
+  }
+  let worst = '', worstV = 0;
+  ;['tick','render','grass','rain'].forEach(k=>{ const v=perf[k]||0; if(v>worstV){ worstV=v; worst=k; }});
+  // also consider subs for hint when tick dominates
+  if ((perf.tick||0) > worstV) { worst = 'tick'; worstV = perf.tick; }
+  let hint = '';
+  if (worstV > 6) {
+    if (worst==='tick') {
+      const top = subs[0];
+      if (top) hint = '→ tick heavy: ' + top.k + ' ' + _fmt(top.v) + 'ms (of ' + _fmt(perf.tick) + ')';
+      else hint = '→ tick/AI heavy (' + _fmt(worstV) + 'ms)';
+    }
+    else if (worst==='render') hint = '→ GPU/render heavy — lower fog/draws';
+    else if (worst==='grass') hint = '→ grass cull heavy';
+    else if (worst==='rain') hint = '→ rain heavy — disable rain';
+  }
+  if (perf.fps < 45 && perf.fps>0) hint = (hint ? hint + ' ' : '') + 'LOW FPS';
+  let out = line1;
+  if (line2) out += '\n' + line2;
+  if (hint) out += '\n' + hint;
+  _perfEl.textContent = out;
+  _perfEl.style.display = 'block';
+  _perfEl.style.color = perf.frame > 20 ? '#ff8a8a' : perf.frame > 14 ? '#ffd88a' : '#9f9';
 }
 (function _fpsLoop() {
   requestAnimationFrame(_fpsLoop);
-  _fpsFrames++;
   const now = performance.now();
-  const dt = now - _fpsLast;
-  if (dt >= 400) {
-    _fps = Math.round(_fpsFrames * 1000 / dt);
-    _fpsFrames = 0; _fpsLast = now;
-    _updateInfo();
-  }
+  if (perfSample(now)) _updateInfo();
 })();
 _updateInfo();
+window.__gaultPerf = perf;

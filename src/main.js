@@ -1,10 +1,11 @@
 
 
-import { scene, camera, gunScene, postMat, renderFrame } from './core.js';
+import { scene, camera, gunScene, postMat, renderFrame, renderer } from './core.js';
+import { perf, perfMark, perfEnd, perfFrameStart, perfFrameEnd, perfSetDraws, perfSetCounts } from './perf.js';
 import { S, GUN_POS, GUN_ROT, ADS_POS, ADS_ROT, recoilPivot, inGun, takeLook } from './state.js';
 import { updateFiring, hudInfo, flashSync, FLASH, FLASH_DEBUG, curWeaponName, getGunModel, flash, getMuzzleFlash, reloadK, switchK, getWorldFlash, updateLandingMarker, wgsSpeedBoost, weaponSpeedMul, bashRot, bashThrust, viewPos, viewRot, updateBoxUse, cancelBox, boxDip, boxUseInfo, brainTargetPos } from './weapons.js';
-import { updateAmmoUI, updateHpUI, updateCcUI, updateRadarUI, updateGrenadeUI, updatePvpHud, updateHudVisibility, setHpFlash, showDeathScreen, hideDeathBoard, flashDbg, placeUIPanels, showSubtitle, updateSubtitle, placeBossHud, updateBoxBar, hideBoxBar, requestGameLock } from './ui.js';
-import { resolveCollisions, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull, updateRain } from './world.js';
+import { updateAmmoUI, updateHpUI, updateCcUI, updateRadarUI, updateGrenadeUI, updatePvpHud, updateHudVisibility, setHpFlash, showDeathScreen, hideDeathBoard, flashDbg, placeUIPanels, showSubtitle, updateSubtitle, placeBossHud, placeMissionHud, updateMissionHud, updateBoxBar, hideBoxBar, requestGameLock } from './ui.js';
+import { resolveCollisions, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull, updateRain, pointInCollider } from './world.js';
 import { updateUgv, allUgvsDead, ugvCount, lowerCert as ugvLowerCert } from './ugv.js';
 import { updateTurrets, allTurretsDead, turretCount, lowerCert as turretLowerCert } from './turret.js';
 import { updateDrone, lowerCert as droneLowerCert } from './drone.js';
@@ -24,6 +25,7 @@ import './signalling.js';
 import './input.js';
 import { showWin, updateHubIntro, updateStoryCutscene, bootActive } from './menu.js';
 import { TICK_DT, consumeTicks } from './tick.js';
+import { isMissionActive, updateMission, missionHudText, getHoldInfo, getCheckpoint, respawnToCheckpoint } from './mission.js';
 
 function getForward() {
   const f = _tFwd.set(0, 0, -1);
@@ -55,6 +57,9 @@ let lastFloorEye = 0, landK = 0;
 const tVel = new THREE.Vector3();
 let isSprinting = false;
 let sprintT = 0;
+// ponytail: downhill slide after jumping — not controllable, grit path if needed
+let slideT = 0, slideMax = 0, slideJumped = false, slideJumpAir = false;
+const _slideDir = new THREE.Vector2();
 let adsBlend = 0;
 let wasDead = false;
 let airFloor = 0;
@@ -233,7 +238,13 @@ function updatePlayer(dt) {
 
   if (S.keys['Space'] && onGround) {
     if (S.prone) S.prone = false;
-    else velY = 6.5;
+    else {
+      const wasSliding = slideT > 0;
+      velY = 6.5;
+      slideJumped = true;
+      if (wasSliding) { airFloor = Math.hypot(vel.x, vel.z); slideT = 0; slideMax = 0; slideJumpAir = true; }
+      else slideJumpAir = false;
+    }
   }
   velY -= 20 * dt;
   playerY += velY * dt;
@@ -246,6 +257,18 @@ function updatePlayer(dt) {
       landK = Math.min(0.6, Math.max(0, -velY) * 0.015);
       S.shakeX += (Math.random() - 0.5) * 0.02 * landK;
       S.shakeY += (Math.random() - 0.5) * 0.02 * landK;
+      if (slideJumped) {
+        const gx = groundHeight(camera.position.x + 0.8, camera.position.z) - groundHeight(camera.position.x - 0.8, camera.position.z);
+        const gz = groundHeight(camera.position.x, camera.position.z + 0.8) - groundHeight(camera.position.x, camera.position.z - 0.8);
+        const slope = Math.hypot(gx, gz) / 1.6;
+        if (slope > 0.28) {
+          const l = Math.hypot(gx, gz) || 1;
+          _slideDir.set(-gx / l, -gz / l);
+          slideT = 1.6 + slope * 3.0;
+          slideMax = slideT;
+        }
+      }
+      slideJumped = false; slideJumpAir = false;
     } else if (floorEye - lastFloorEye > 0.25) {
       landK = Math.max(landK, 0.25);
     }
@@ -261,22 +284,66 @@ function updatePlayer(dt) {
   } else {
     lastFloorEye = floorEye;
     onGround = false;
+    if (!onGround) { slideT = 0; slideMax = 0; }
   }
   S.airborne = !onGround;
 
   if (onGround) {
-
-    let iny = 0, inx = 0;
-    if (S.keys['KeyW']) iny += 1;
-    if (S.keys['KeyS']) iny -= 1;
-    if (S.keys['KeyD']) inx += 1;
-    if (S.keys['KeyA']) inx -= 1;
-    tVel.set(0, 0, 0);
-    tVel.addScaledVector(forward, iny > 0 ? iny * MOVE_FWD : iny * MOVE_BACK)
-        .addScaledVector(right, inx * MOVE_STRAFE);
-    if (tVel.length() > 0) tVel.normalize().multiplyScalar(speed);
-    vel.lerp(tVel, Math.min(1, dt * 12));
-    airFloor = vel.length();
+    if (slideT > 0) {
+      slideT -= dt;
+      const gx2 = groundHeight(camera.position.x + 0.8, camera.position.z) - groundHeight(camera.position.x - 0.8, camera.position.z);
+      const gz2 = groundHeight(camera.position.x, camera.position.z + 0.8) - groundHeight(camera.position.x, camera.position.z - 0.8);
+      const slope2 = Math.hypot(gx2, gz2) / 1.6;
+      if (slope2 < 0.12) slideT = 0;
+      if (slideT > 0) {
+        const l2 = Math.hypot(gx2, gz2) || 1;
+        _slideDir.set(-gx2 / l2, -gz2 / l2);
+        const prog = slideMax > 0 ? (slideT / slideMax) : 0;
+        const base = 4.0 + slope2 * 9;
+        let spd = base * (0.35 + 0.65 * prog);
+        // ponytail: push with slide dir to go faster
+        let _iny = 0, _inx = 0;
+        if (S.keys['KeyW']) _iny += 1;
+        if (S.keys['KeyS']) _iny -= 1;
+        if (S.keys['KeyD']) _inx += 1;
+        if (S.keys['KeyA']) _inx -= 1;
+        if (_iny !== 0 || _inx !== 0) {
+          _tV.set(0, 0, 0).addScaledVector(forward, _iny > 0 ? _iny * MOVE_FWD : _iny * MOVE_BACK).addScaledVector(right, _inx * MOVE_STRAFE);
+          if (_tV.length() > 0) { _tV.normalize(); const dot = _tV.x * _slideDir.x + _tV.z * _slideDir.y; if (dot > 0.2) spd *= 1 + dot * 0.75; }
+        }
+        spd *= 0.78 + Math.random() * 0.42;
+        if (Math.random() < 0.07) spd *= 0.45; // rock snag
+        const angJ = (Math.random() - 0.5) * 0.32;
+        const cs = Math.cos(angJ), sn = Math.sin(angJ);
+        const dx = _slideDir.x * cs - _slideDir.y * sn;
+        const dy = _slideDir.x * sn + _slideDir.y * cs;
+        const tx = dx * spd, tz = dy * spd;
+        vel.x += (tx - vel.x) * Math.min(1, dt * 7);
+        vel.z += (tz - vel.z) * Math.min(1, dt * 7);
+        vel.x += (Math.random() - 0.5) * 0.7 * slope2;
+        vel.z += (Math.random() - 0.5) * 0.7 * slope2;
+        if (Math.random() < 0.09) landK = Math.max(landK, 0.12 + Math.random() * 0.14);
+        if (Math.random() < 0.04) { vel.x *= 0.6; vel.z *= 0.6; }
+        S.shakeX += (Math.random() - 0.5) * 0.025 * slope2;
+        S.shakeY += (Math.random() - 0.5) * 0.02 * slope2;
+        S.caKick = Math.min(0.5, S.caKick + Math.random() * 0.06 * slope2);
+        S.fovPunch += Math.random() * 0.4 * slope2;
+        airFloor = vel.length();
+      } else { slideT = 0; slideMax = 0; }
+    }
+    if (slideT <= 0) {
+      let iny = 0, inx = 0;
+      if (S.keys['KeyW']) iny += 1;
+      if (S.keys['KeyS']) iny -= 1;
+      if (S.keys['KeyD']) inx += 1;
+      if (S.keys['KeyA']) inx -= 1;
+      tVel.set(0, 0, 0);
+      tVel.addScaledVector(forward, iny > 0 ? iny * MOVE_FWD : iny * MOVE_BACK)
+          .addScaledVector(right, inx * MOVE_STRAFE);
+      if (tVel.length() > 0) tVel.normalize().multiplyScalar(speed);
+      vel.lerp(tVel, Math.min(1, dt * 12));
+      airFloor = vel.length();
+    }
   } else {
 
 
@@ -290,7 +357,7 @@ function updatePlayer(dt) {
     const horiz = _tV2.set(vel.x, 0, vel.z);
     if (horiz.length() > MAX_AIR_SPEED) horiz.setLength(MAX_AIR_SPEED);
     vel.x = horiz.x; vel.z = horiz.z;
-    vel.multiplyScalar(Math.pow(0.98, dt * 60));
+    vel.multiplyScalar(Math.pow(slideJumpAir ? 0.995 : 0.98, dt * 60));
   }
   landK *= Math.pow(0.0001, dt);
 
@@ -351,18 +418,11 @@ function updateCameraRig(dt) {
       S.aimShift += (0 - S.aimShift) * Math.min(1, dt * 12);
     }
     const fwd2 = _tV.set(0, 0, -1).applyQuaternion(camera.quaternion);
-    wallRay.set(camera.position, fwd2);
-    wallRay.far = 3;
-    wallRay.camera = camera;
-    const wh2 = wallRay.intersectObjects(scene.children, true);
+    // ponytail: was intersectObjects(scene) O(meshes*tris) ~60ms on lamma — collider sample is ~0.02ms
     let nearest2 = 1.3;
-    for (let i = 0; i < wh2.length; i++) {
-      const o = wh2[i].object;
-      if (inGun(o) || o.userData.ground || o.userData.isMortarBoard || o.userData.rain) continue;
-
-      let p = o.parent; let isRain = false; while (p) { if (p.userData && p.userData.rain) { isRain = true; break; } p = p.parent; }
-      if (isRain) continue;
-      nearest2 = wh2[i].distance; break;
+    for (let d = 0.3; d <= 1.35; d += 0.3) {
+      const sx = camera.position.x + fwd2.x * d, sz = camera.position.z + fwd2.z * d, sy = camera.position.y - 0.2;
+      if (pointInCollider(sx, sy, sz)) { nearest2 = d; break; }
     }
     S.wallProx += (THREE.MathUtils.clamp((1.3 - nearest2) / 0.7, 0, 1) - S.wallProx) * Math.min(1, dt * 10);
     return;
@@ -422,17 +482,10 @@ function updateCameraRig(dt) {
 
 
   const fwd = _tV.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  wallRay.set(camera.position, fwd);
-  wallRay.far = 3;
-  wallRay.camera = camera;
-  const wh = wallRay.intersectObjects(scene.children, true);
   let nearest = 1.3;
-  for (let i = 0; i < wh.length; i++) {
-    const o = wh[i].object;
-    if (inGun(o) || o.userData.ground || o.userData.isMortarBoard || o.userData.rain) continue;
-    let p = o.parent; let isRain = false; while (p) { if (p.userData && p.userData.rain) { isRain = true; break; } p = p.parent; }
-    if (isRain) continue;
-    nearest = wh[i].distance; break;
+  for (let d = 0.3; d <= 1.35; d += 0.3) {
+    const sx = camera.position.x + fwd.x * d, sz = camera.position.z + fwd.z * d, sy = camera.position.y - 0.2;
+    if (pointInCollider(sx, sy, sz)) { nearest = d; break; }
   }
   S.wallProx += (THREE.MathUtils.clamp((1.3 - nearest) / 0.7, 0, 1) - S.wallProx) * Math.min(1, dt * 10);
 }
@@ -586,36 +639,29 @@ function updateViewmodel(dt, now, isMoving) {
 
 
 function playTick(dt, now) {
-  updateMortar(dt);
-  updateBonics(dt);
+  perfMark('tick');
+  perfMark('mortar'); updateMortar(dt); updateBonics(dt); perfEnd('mortar');
   const wasDriving = isDriving() || isTankDriving();
   const wasRc = rcActive();
   const mort = isMortarActive();
   if (wasDriving || wasRc || mort) gunScene.visible = false; else gunScene.visible = true;
-  const isMoving = (wasDriving || wasRc) ? false : updatePlayer(dt);
-  updateTriggers();
-  updateSubtitle();
+  perfMark('player'); const isMoving = (wasDriving || wasRc) ? false : updatePlayer(dt); perfEnd('player');
+  perfMark('triggers'); updateTriggers(); updateSubtitle(); perfEnd('triggers');
 
+  perfMark('pickups');
   const hboxGot = updateHealthBoxes(dt);
   if (hboxGot) showSubtitle('HEALTH BOX +' + hboxGot);
-
   const radioGot = updateRadios(dt);
   if (radioGot) showSubtitle('RADIO COLLECTED ' + (radiosPlaced() - radiosLeft()) + '/' + radiosPlaced());
+  perfEnd('pickups');
 
-  updateFiring(dt, now);
-  updateBoxUse(dt);
+  perfMark('weapons'); updateFiring(dt, now); updateBoxUse(dt);
   const bu = boxUseInfo();
   if (bu) updateBoxBar(bu.frac, bu.secs); else hideBoxBar();
   updateAmmoUI(mortarHud() || rcHud() || hudInfo());
-  updateHpUI();
-  updateCcUI();
-  updateRadarUI();
-  updateGrenadeUI();
-  updatePvpHud();
+  updateHpUI(); updateCcUI(); updateRadarUI(); updateGrenadeUI(); updatePvpHud();
   updateRadar(dt, now);
-  setHpFlash(S.hpFlash);
-  S.hpFlash *= Math.pow(0.03, dt);
-
+  setHpFlash(S.hpFlash); S.hpFlash *= Math.pow(0.03, dt);
   flashSync(FLASH[curWeaponName()]);
   if (FLASH_DEBUG) {
     const FD = FLASH[curWeaponName()];
@@ -626,42 +672,56 @@ function playTick(dt, now) {
     if (S.keys['KeyK']) FD.pos[1] -= fnudge;
     flashDbg.textContent = curWeaponName() + '  x:' + FD.pos[0].toFixed(3) + ' y:' + FD.pos[1].toFixed(3) + ' z:' + FD.pos[2].toFixed(3);
   }
+  perfEnd('weapons');
 
-  updateCameraRig(dt);
-  updateViewmodel(dt, now, isMoving);
+  perfMark('camera'); updateCameraRig(dt); updateViewmodel(dt, now, isMoving); perfEnd('camera');
 
-  updateLandingMarker();
-  updateIdent(dt, now);
+  perfMark('ident'); updateLandingMarker(); updateIdent(dt, now); perfEnd('ident');
 
-  updateUgv(dt, now);
+  perfMark('ugv'); updateUgv(dt, now); perfEnd('ugv');
+
+  // ponytail: mission phases override legacy win
+  perfMark('mission');
+  let missionWon=false;
+  if(isMissionActive()){
+    missionWon = updateMission(dt, now);
+    const hold = getHoldInfo();
+    if(hold && !boxUseInfo()) updateBoxBar(hold.frac, hold.remain);
+    const mh = missionHudText();
+    if(mh) updateMissionHud(mh); else updateMissionHud(null);
+    if(missionWon){ updateMissionHud(null); if(!S.dead && !S.won) showWin(); }
+  } else {
+    const foes = ugvCount() + turretCount() + bossCount();
+    const cleared = foes > 0 && allUgvsDead() && allTurretsDead() && allBossesDead();
+    const hasRadios = radiosPlaced();
+    const allRadios = hasRadios && radiosLeft() === 0;
+    let won = hasRadios
+      ? allRadios && (!MAP_SPAWNS.extract || atExtract())
+      : (MAP_SPAWNS.extract && atExtract()) || (!MAP_SPAWNS.extract && cleared);
+    if (!S.dead && !S.won && won) showWin();
+    else if (!S.dead && !S.won && cleared && MAP_SPAWNS.extract && now - extractHintAt > 8) { extractHintAt = now; showSubtitle('GET TO EXTRACTION'); }
+  }
+  perfEnd('mission');
+  perfMark('turret'); updateTurrets(dt, now); perfEnd('turret');
+  perfMark('drone'); updateDrone(dt, now); perfEnd('drone');
+  perfMark('boss'); updateBoss(dt, now); perfEnd('boss');
+  perfMark('gren'); updateGrenades(dt); updateCml(dt, now, curWeaponName() === 'CML-2'); perfEnd('gren');
+  perfMark('pvpCars');
+  perfMark('pvp'); if (S.pvp) updatePvp(dt, now); perfEnd('pvp');
+  perfMark('cars'); updateCars(dt, now); perfEnd('cars');
+  perfMark('tanks'); updateTanks(dt, now); perfEnd('tanks');
+  perfMark('rc'); updateRc(dt, now); perfEnd('rc');
+  perfEnd('pvpCars');
 
 
-  const foes = ugvCount() + turretCount() + bossCount();
-  const cleared = foes > 0 && allUgvsDead() && allTurretsDead() && allBossesDead();
-  const hasRadios = radiosPlaced();
-  const allRadios = hasRadios && radiosLeft() === 0;
-  let won = hasRadios
-    ? allRadios && (!MAP_SPAWNS.extract || atExtract())
-    : (MAP_SPAWNS.extract && atExtract()) || (!MAP_SPAWNS.extract && cleared);
-  if (!S.dead && !S.won && won) showWin();
-  else if (!S.dead && !S.won && cleared && MAP_SPAWNS.extract && now - extractHintAt > 8) { extractHintAt = now; showSubtitle('GET TO EXTRACTION'); }
-  updateTurrets(dt, now);
-  updateDrone(dt, now);
-  updateBoss(dt, now);
-  updateGrenades(dt);
-  updateCml(dt, now, curWeaponName() === 'CML-2');
-  if (S.pvp) updatePvp(dt, now);
-  updateCars(dt, now);
-  updateTanks(dt, now);
-  updateRc(dt, now);
-
-
-  S.caKick *= Math.pow(0.02, dt);
+  perfMark('postFx'); S.caKick *= Math.pow(0.02, dt);
   const motionCA = S.caKick * 0.1 + (Math.abs(S.shakeX) + Math.abs(S.shakeY)) * 0.5 + vel.length() * 0.002;
-  postMat.uniforms.uCA.value = Math.min(0.02 + motionCA, 0.5);
+  postMat.uniforms.uCA.value = Math.min(0.02 + motionCA, 0.5); perfEnd('postFx');
+  perfEnd('tick');
 }
 
 function animate() {
+  perfFrameStart();
   requestAnimationFrame(animate);
   const frameDt = Math.min(clock.getDelta(), 0.1);
   const now = clock.elapsedTime;
@@ -670,14 +730,18 @@ function animate() {
 
   updateHudVisibility();
   placeBossHud();
+  placeMissionHud();
 
 
 
   if (S.hub) {
     updateHubIntro(frameDt);
     camera.quaternion.setFromEuler(S.euler);
-    updateRain(frameDt);
+    perfMark('rain'); updateRain(frameDt); perfEnd('rain');
     renderFrame(now);
+    perfSetDraws(renderer.info.render.calls, renderer.info.render.triangles);
+    try { const _gc = renderer.info.render.calls; void _gc; } catch(e){}
+    perfFrameEnd();
     return;
   }
 
@@ -685,8 +749,10 @@ function animate() {
   if (S.pvpLobby) {
     camera.quaternion.setFromEuler(S.euler);
     gunScene.visible = false;
-    updateRain(frameDt);
+    perfMark('rain'); updateRain(frameDt); perfEnd('rain');
     renderFrame(now);
+    perfSetDraws(renderer.info.render.calls, renderer.info.render.triangles);
+    perfFrameEnd();
     return;
   }
 
@@ -695,8 +761,10 @@ function animate() {
     try{ hideTankAim(); }catch(e){}
     camera.quaternion.setFromEuler(S.euler);
     decayCA(frameDt);
-    updateRain(frameDt);
+    perfMark('rain'); updateRain(frameDt); perfEnd('rain');
     renderFrame(now);
+    perfSetDraws(renderer.info.render.calls, renderer.info.render.triangles);
+    perfFrameEnd();
     return;
   }
 
@@ -704,8 +772,10 @@ function animate() {
   if (!S.hub && bootActive()) {
     camera.quaternion.setFromEuler(S.euler);
     decayCA(frameDt);
-    updateRain(frameDt);
+    perfMark('rain'); updateRain(frameDt); perfEnd('rain');
     renderFrame(now);
+    perfSetDraws(renderer.info.render.calls, renderer.info.render.triangles);
+    perfFrameEnd();
     return;
   }
 
@@ -728,17 +798,37 @@ function animate() {
     if (isDriving()) exitCar();
     if (isTankDriving()) exitTank();
 
-    const sp = S.pvp ? (function() {
-      const pv = (MAP_SPAWNS.pvp || []).find(function(s) { return s.team === S.pvpTeam; }) || (MAP_SPAWNS.pvp || [])[0];
-      return pv ? [pv.x, pv.z, pv.rotY] : null;
-    })() : MAP_SPAWNS.player;
-    const sx = sp ? sp[0] : 0, sz = sp ? sp[1] : 0;
-    camera.position.set(sx, eyeCur, sz);
-    if (sp && sp[2] != null) S.euler.y = THREE.MathUtils.degToRad(sp[2]);
-    playerY = eyeCur; velY = 0; vel.set(0, 0, 0);
-    S.hp = S.maxHp; S.dead = false; S.respawnRequested = false;
-    wasDead = false; deathAnimating = false; kcPhase = 0;
-    ugvLowerCert(); droneLowerCert(); turretLowerCert(); bossLowerCert();
+    // ponytail: mission checkpoint respawn
+    let usedCp=false;
+    if(isMissionActive()){
+      const cp=getCheckpoint();
+      if(cp){
+        const rec=respawnToCheckpoint();
+        if(rec){
+          const gh = rec.y || (groundHeight(rec.x, rec.z)+1.7);
+           camera.position.set(rec.x, gh, rec.z);
+          S.euler.y = rec.yaw || 0;
+          playerY = gh; velY=0; vel.set(0,0,0); slideT=0; slideMax=0; slideJumped=false; slideJumpAir=false;
+          S.hp=S.maxHp; S.dead=false; S.respawnRequested=false;
+          wasDead=false; deathAnimating=false; kcPhase=0;
+          ugvLowerCert(); droneLowerCert(); turretLowerCert(); bossLowerCert();
+          usedCp=true;
+        }
+      }
+    }
+    if(!usedCp){
+      const sp = S.pvp ? (function() {
+        const pv = (MAP_SPAWNS.pvp || []).find(function(s) { return s.team === S.pvpTeam; }) || (MAP_SPAWNS.pvp || [])[0];
+        return pv ? [pv.x, pv.z, pv.rotY] : null;
+      })() : MAP_SPAWNS.player;
+      const sx = sp ? sp[0] : 0, sz = sp ? sp[1] : 0;
+      camera.position.set(sx, eyeCur, sz);
+      if (sp && sp[2] != null) S.euler.y = THREE.MathUtils.degToRad(sp[2]);
+      playerY = eyeCur; velY = 0; vel.set(0, 0, 0); slideT=0; slideMax=0; slideJumped=false; slideJumpAir=false;
+      S.hp = S.maxHp; S.dead = false; S.respawnRequested = false;
+      wasDead = false; deathAnimating = false; kcPhase = 0;
+      ugvLowerCert(); droneLowerCert(); turretLowerCert(); bossLowerCert();
+    }
   }
 
   if (S.dead || (S.paused && !S.pvp) || (!S.pvp && !S.isLocked && S.everLocked)) {
@@ -753,15 +843,26 @@ function animate() {
       }
       updateSubtitle();
       if (!S.photo) decayCA(frameDt);
-      updateRain(frameDt);
-      placeUIPanels(); renderFrame(now); return;
+      perfMark('rain'); updateRain(frameDt); perfEnd('rain');
+      placeUIPanels(); renderFrame(now);
+      perfSetDraws(renderer.info.render.calls, renderer.info.render.triangles);
+      perfFrameEnd(); return;
   }
 
   const n = consumeTicks(frameDt);
   for (let i = 0; i < n; i++) playTick(TICK_DT, now);
-  updateGrassCull();
-  updateRain(frameDt);
+  perfMark('grass'); updateGrassCull(); perfEnd('grass');
+  // track visible grass + props for perf overlay
+  try {
+    let vg = 0; const _gc = window.__gaultGrassChunks || null;
+    // fallback: count via perfSetCounts from world counts
+    vg = (renderer.info.render.calls || 0);
+    perfSetCounts(vg, 0);
+  } catch(e){}
+  perfMark('rain'); updateRain(frameDt); perfEnd('rain');
   renderFrame(now);
+  perfSetDraws(renderer.info.render.calls, renderer.info.render.triangles);
+  perfFrameEnd();
 }
 
 

@@ -19,6 +19,7 @@ const FIRE_RANGE = 25;
 const CONE_HALF = 1.0;
 const FIRE_INTERVAL = 0.12;
 const TURRET_DMG = 1;
+function diffMult(){ const k=(S.missionDiff||'normal'); if(k==='easy') return {hp:0.6,dmg:0.6}; if(k==='hard') return {hp:1.35,dmg:1.35}; if(k==='veteran') return {hp:1.7,dmg:1.7}; return {hp:1,dmg:1}; }
 const SPREAD = 0.025;
 const AGGRO_LOST = 2.0;
 const TURN_RATE = 2.4;
@@ -82,7 +83,7 @@ new THREE.GLTFLoader().load('assets/models/turret.gltf', function(gltf) {
 function newTurret(x, z, yaw) {
   const t = {
     x: x, z: z, yaw: yaw || 0,
-    hp: TURRET_HP, dead: false,
+    hp: Math.round(TURRET_HP*diffMult().hp), dead: false,
     model: null, baseY: 0, top: 1, muzzleH: 1.2,
     attacking: false, lostT: 0, fireT: 0.5, noticeT: 0,
     cert: 14,
@@ -90,6 +91,35 @@ function newTurret(x, z, yaw) {
   turrets.push(t);
   return t;
 }
+export function spawnMissionTurret(x,z,yaw){
+  if(!proto){ MAP_SPAWNS.turrets.push([x,z,yaw]); return null; }
+  const t=newTurret(x,z,yaw);
+  const m=proto.clone();
+  scene.add(m);
+  m.updateMatrixWorld(true);
+  const bb=new THREE.Box3().setFromObject(m);
+  t.baseY=m.userData.baseY;
+  t.top=bb.max.y-bb.min.y;
+  t.muzzleH=t.baseY+m.getObjectByName('mz').position.y;
+  t.top=t.muzzleH/0.7;
+  t.model=m;
+  const as=new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({visible:false}));
+  t.asSize=bb.getSize(new THREE.Vector3());
+  as.scale.copy(t.asSize).multiplyScalar(S.settings.aimAssist);
+  as.position.copy(bb.getCenter(new THREE.Vector3()));
+  m.add(as); t.assistBox=as;
+  const fm=new THREE.SpriteMaterial({map:flashTex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true});
+  const fs=new THREE.Sprite(fm);
+  fs.position.copy(m.getObjectByName('mz').position);
+  fs.raycast=function(){};
+  fs.visible=false;
+  m.add(fs); t.flashSpr=fs; t.muzzle=m.getObjectByName('mz');
+  m.visible=true;
+  m.position.set(t.x, groundHeight(t.x,t.z)+t.baseY, t.z);
+  m.rotation.set(0,t.yaw,0);
+  return t;
+}
+window.__missionSpawnTurret=spawnMissionTurret;
 
 function spawnAll() {
   MAP_SPAWNS.turrets.forEach(function(s) {
@@ -208,7 +238,7 @@ function shoot(t) {
     t.flashSpr.scale.set(fs, fs, 1);
     t.flashSpr.visible = true;
   }
-  if (!evadedShot(origin)) damagePlayer(TURRET_DMG, origin);
+  if (!evadedShot(origin)) damagePlayer(Math.round(TURRET_DMG*diffMult().dmg)||1, origin);
 }
 
 function updateOne(t, dt) {

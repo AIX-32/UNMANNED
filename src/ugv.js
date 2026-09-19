@@ -14,6 +14,7 @@ const UGV_LEN = 3.0;
 const UGV_RAD = 1.35;
 const UGV_HP = 250;
 const UGV_RESPAWN = 25;
+function diffMult(){ const k=(S.missionDiff||'normal'); if(k==='easy') return {hp:0.6,dmg:0.6}; if(k==='hard') return {hp:1.35,dmg:1.35}; if(k==='veteran') return {hp:1.7,dmg:1.7}; return {hp:1,dmg:1}; }
 
 const UGV_SPEED = 2.2, UGV_ACCEL = 1.1, UGV_BRAKE = 2.6, UGV_TURN = 0.9;
 const UPHILL_PENALTY = 8;
@@ -125,7 +126,7 @@ function ugvShoot(u) {
     u.flashSpr.scale.set(fs, fs, 1);
     u.flashSpr.visible = true;
   }
-  if (!missed && !evadedShot(origin)) damagePlayer(UGV_DMG, origin);
+  if (!missed && !evadedShot(origin)) damagePlayer(Math.round(UGV_DMG*diffMult().dmg), origin);
 }
 
 
@@ -173,7 +174,7 @@ function newUgv(x, z, yaw, sector) {
   const u = {
     x: x, z: z, yaw: yaw, speed: 0, pitch: 0, roll: 0,
     path: null, pi: 0, pauseT: 1, stuckT: 0, lastX: x, lastZ: z,
-    hp: UGV_HP, dead: false, respawnT: 0, routeI: 0,
+    hp: Math.round(UGV_HP*diffMult().hp), dead: false, respawnT: 0, routeI: 0,
     model: null, wreck: null, baseY: 0, top: 1,
     attacking: false, lostT: 0, fireT: 1.5, noticeT: 0,
     invT: 0, invX: 0, invZ: 0,
@@ -183,6 +184,33 @@ function newUgv(x, z, yaw, sector) {
   ugvs.push(u);
   return u;
 }
+export function spawnMissionUgv(x,z,sector){
+  if(!ugvProto) { MAP_SPAWNS.ugvs.push({x:x,z:z,sector:sector}); return null; }
+  const u=newUgv(x,z,Math.random()*Math.PI*2, sector);
+  const m=ugvProto.clone();
+  scene.add(m);
+  m.updateMatrixWorld(true);
+  const bb=new THREE.Box3().setFromObject(m);
+  u.baseY=m.userData.baseY;
+  u.top=bb.max.y-bb.min.y;
+  u.model=m;
+  const as=new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({visible:false}));
+  u.asSize=bb.getSize(new THREE.Vector3());
+  as.scale.copy(u.asSize).multiplyScalar(S.settings.aimAssist);
+  as.position.copy(bb.getCenter(new THREE.Vector3()));
+  m.add(as); u.assistBox=as;
+  const fm=ugvFlashMat.clone();
+  const fs=new THREE.Sprite(fm);
+  fs.position.fromArray(UGV_FLASH.pos);
+  fs.raycast=function(){};
+  fs.visible=false;
+  m.add(fs); u.flashSpr=fs;
+  m.visible=true;
+  m.position.set(u.x, groundHeight(u.x,u.z)+u.baseY, u.z);
+  return u;
+}
+window.__missionSpawnUgv = spawnMissionUgv;
+window.__gaultSpawnMissionUgv = spawnMissionUgv;
 
 function spawnAll() {
   MAP_SPAWNS.ugvs.forEach(function(s) {

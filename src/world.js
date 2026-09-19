@@ -12,6 +12,7 @@ import { setCarMapReady } from './car.js';
 import { setTankMapReady } from './tank.js';
 import { setRcMapReady } from './rc.js';
 import { setFogSlider } from './core.js';
+import { setMissionMapReady } from './mission.js';
 const ambient = new THREE.AmbientLight(0x403030, 0.5);
 scene.add(ambient);
 const moon = new THREE.DirectionalLight(0xff6a2a, 1.1);
@@ -173,6 +174,16 @@ export function pointInCollider(x, y, z) {
       if ((x - q2[0]) * (x - q2[0]) + (z - q2[1]) * (z - q2[1]) < c.r * c.r) return true;
     }
   }
+  // ponytail: tanks are solid — direct check (tiny count, no grid churn)
+  const tanks = window.__gaultTanks;
+  if (tanks) for (let i = 0; i < tanks.length; i++) {
+    const t = tanks[i];
+    if (t.dead || !t.mesh) continue;
+    const ty0 = t.tankY0 || 0, ty1 = t.tankY1 || 2.6;
+    if (y < ty0 || y > ty1) continue;
+    const dx = x - t.x, dz = z - t.z;
+    if (dx*dx+dz*dz < (t.tankR||1.9)*(t.tankR||1.9)) return true;
+  }
   return false;
 }
 
@@ -196,7 +207,7 @@ export function supportHeight(x, nz, fromY) {
 
 
 
-export function resolveCollisions(x, z, vel, footY, headY, radius, segsAlwaysBlock) {
+export function resolveCollisions(x, z, vel, footY, headY, radius, segsAlwaysBlock, ignoreTankIdx) {
   const r = radius || PLAYER_RAD;
   const q = queryNear(x, z);
   for (let i = 0; i < q.length; i++) {
@@ -249,6 +260,29 @@ export function resolveCollisions(x, z, vel, footY, headY, radius, segsAlwaysBlo
     const inward = vel.x * nx + vel.z * nz;
     if (inward < 0) { vel.x -= nx * inward; vel.z -= nz * inward; }
     if (push > 0) { x += nx * push; z += nz * push; }
+  }
+  // ponytail: tanks solid — direct cyl check (no grid churn for moving tanks)
+  const tanks = window.__gaultTanks;
+  if (tanks) {
+    for (let ti = 0; ti < tanks.length; ti++) {
+      if (ti === ignoreTankIdx) continue;
+      const t = tanks[ti];
+      if (t.dead || !t.mesh) continue;
+      const ty0 = t.tankY0 != null ? t.tankY0 : groundHeight(t.x, t.z);
+      const ty1 = t.tankY1 != null ? t.tankY1 : ty0 + 2.6;
+      if (ty1 <= footY + STEP_UP) continue;
+      if (ty0 >= headY) continue;
+      const dx = x - t.x, dz = z - t.z;
+      const rr = (t.tankR || 1.9) + r;
+      const d = Math.hypot(dx, dz);
+      if (d >= rr) continue;
+      let nx, nz, push;
+      if (d < 1e-5) { nx = 1; nz = 0; push = rr; }
+      else { nx = dx / d; nz = dz / d; push = rr - d; }
+      const inward2 = vel.x * nx + vel.z * nz;
+      if (inward2 < 0) { vel.x -= nx * inward2; vel.z -= nz * inward2; }
+      if (push > 0) { x += nx * push; z += nz * push; }
+    }
   }
   return [x, z];
 }
@@ -1114,6 +1148,7 @@ export function applyMap(j) {
   setTankMapReady();
   setRcMapReady();
   if (S.resetMortar) S.resetMortar();
+  setMissionMapReady(j);
   syncHub();
   S.worldReady = true;
 }

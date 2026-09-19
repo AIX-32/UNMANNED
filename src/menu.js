@@ -13,6 +13,7 @@ import { startHostUi, startJoinUi, netOpen, getStatus as sessionStatus, onStatus
 import { pvpMaps, hostPickMap, hostResetPick, guestReady, hostStart, isHost, guestHasReady, guestHasSent, pickedMap, setLobbyRedraw, PVP_MODE, pvpLobbyActive, setRemoteTags } from './pvp.js';
 import { onlineList, onlineJoin } from './signalling.js';
 import * as idb from '../idb.js';
+import { getMissionDiff, setMissionDiff } from './mission.js';
 
 const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
 
@@ -59,6 +60,7 @@ const CAMPAIGN = [
   { map: 'Yank', desc: '' },
   { map: 'Jampo', desc: '' },
   { map: 'Loner', desc: '' },
+  { map: 'Lamma', desc: '' },
 ];
 const LVLPLAY = [
   { map: 'Yazd', desc: '' },
@@ -177,6 +179,13 @@ const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.1),
 mesh.renderOrder = 970;
 mesh.visible = false;
 scene.add(mesh);
+const DIFF_CW=512, DIFF_CH=160;
+const diffCanvas=document.createElement('canvas'); diffCanvas.width=DIFF_CW; diffCanvas.height=DIFF_CH;
+const diffCtx=diffCanvas.getContext('2d');
+const diffTex=new THREE.CanvasTexture(diffCanvas); diffTex.minFilter=THREE.LinearFilter;
+const diffMesh=new THREE.Mesh(new THREE.PlaneGeometry(1.2,0.375), new THREE.MeshBasicMaterial({map:diffTex,transparent:true,depthTest:false,depthWrite:false}));
+diffMesh.renderOrder=972; diffMesh.visible=false; scene.add(diffMesh);
+const diffBtns=[];
 
 const winMesh = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.1),
   new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
@@ -377,6 +386,7 @@ function drawMenu() {
   if (mpKey !== drawnView) { drawnView = mpKey; boardReopen(mesh); }
   ctx.clearRect(0, 0, CW, CH);
   menuBtns.length = 0;
+  if (view !== 'campaign' && view !== 'shop' && view !== 'loadout' && diffMesh.visible) boardHide(diffMesh);
   if (view === 'hub') {
 
     hubTitle();
@@ -409,8 +419,30 @@ function drawMenu() {
       panelTitle(view.toUpperCase());
     }
     if (view === 'campaign') {
+      // ponytail: difficulty on angled shelf at bottom, not flat with board
+      const diffOrder=['easy','normal','hard','veteran'];
+      const curD=getMissionDiff();
       const maxScroll = Math.max(0, 150 + (CAMPAIGN.length - 1) * 44 + 38 - 420);
-      campScroll = Math.max(0, Math.min(maxScroll, campScroll));
+      diffBtns.length=0;
+      diffCtx.clearRect(0,0,DIFF_CW,DIFF_CH);
+      // ponytail: clean outer outline for whole shelf
+      diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=3; diffCtx.strokeRect(4,4,DIFF_CW-8,DIFF_CH-8);
+      // text box
+      const tBoxW=300, tBoxH=38, tBoxX=DIFF_CW/2-tBoxW/2, tBoxY=14;
+      diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=2.5; diffCtx.strokeRect(tBoxX,tBoxY,tBoxW,tBoxH);
+      diffCtx.fillStyle='#fff'; diffCtx.font='700 20px Tomorrow,monospace'; diffCtx.textAlign='center'; diffCtx.textBaseline='middle';
+      diffCtx.fillText('DIFFICULTY: '+curD.toUpperCase(), DIFF_CW/2, tBoxY+tBoxH/2);
+      (function(){
+        function dBtn(x,y,w,h,label,fn){ const hover=label===hoverLabel&&!!fn; diffCtx.globalAlpha=1; diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=hover?4:2.5; diffCtx.strokeRect(x,y,w,h); if(hover){diffCtx.fillStyle='rgba(255,255,255,0.18)'; diffCtx.fillRect(x,y,w,h);} diffCtx.fillStyle='#fff'; diffCtx.font='700 22px Tomorrow,monospace'; diffCtx.textAlign='center'; diffCtx.textBaseline='middle'; diffCtx.fillText(label,x+w/2,y+h/2); diffBtns.push({x:x,y:y,w:w,h:h,label:label,fn:fn}); }
+        const by=62; dBtn(DIFF_CW/2-44, by, 34, 34, '<', function(){ const i=(diffOrder.indexOf(getMissionDiff())-1+diffOrder.length)%diffOrder.length; setMissionDiff(diffOrder[i]); drawMenu(); });
+        dBtn(DIFF_CW/2+10, by, 34, 34, '>', function(){ const i=(diffOrder.indexOf(getMissionDiff())+1)%diffOrder.length; setMissionDiff(diffOrder[i]); drawMenu(); });
+        dBtn(DIFF_CW/2-60, 112, 120, 30, 'BACK', function(){view='hub';drawMenu();});
+      })();
+      if(maxScroll>0){ diffCtx.fillStyle='#fff'; diffCtx.font='600 11px Tomorrow,monospace'; diffCtx.textAlign='center'; diffCtx.textBaseline='middle'; diffCtx.fillText('SCROLL ↓', DIFF_CW/2, 152); }
+      diffTex.needsUpdate=true;
+      if(!diffMesh.visible) boardShow(diffMesh);
+      placeDiffPanel();
+      campScroll=Math.max(0,Math.min(maxScroll,campScroll));
 
       let y = 112 - campScroll;
       CAMPAIGN.forEach(function(lvl, i) {
@@ -461,15 +493,6 @@ function drawMenu() {
       }
       ctx.fillStyle = '#fff'; ctx.font = '700 18px Tomorrow,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       textShadow(true); ctx.fillText(pMap, bx + bw / 2, by + bh + 8); textShadow(false); ctx.textAlign = 'left';
-      if (maxScroll > 0) {
-        ctx.fillStyle = '#fff';
-        ctx.font = '700 20px Tomorrow,monospace';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText('SCROLL ↓', 496, 430);
-        ctx.textAlign = 'left';
-      }
-      panelBtn(menuBtns, 36, 440, 460, 44, 'BACK', function() { view = 'hub'; drawMenu(); }, false, 22);
     } else if (view === 'lvlplay') {
       let y = 150;
       LVLPLAY.forEach(function(lvl) {
@@ -535,8 +558,11 @@ function drawMenu() {
         }
         const buyLabel = owned ? 'OWNED' : 'BUY '+it.price+' CC';
         const dimBuy = owned || !afford;
-        panelBtn(menuBtns, 60, 452, 200, 44, buyLabel, dimBuy ? null : function(){ it.buy(); drawMenu(); }, dimBuy, 18);
-        panelBtn(menuBtns, 280, 452, 200, 44, 'BACK', function(){ shopSelected=null; drawMenu(); }, false, 18);
+        diffBtns.length=0; diffCtx.clearRect(0,0,DIFF_CW,DIFF_CH); diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=3; diffCtx.strokeRect(4,4,DIFF_CW-8,DIFF_CH-8);
+        (function(){ function dBtn(x,y,w,h,label,fn,dim){ const hover=label===hoverLabel&&!!fn; diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=hover?4:2.5; diffCtx.globalAlpha=dim?0.35:1; diffCtx.strokeRect(x,y,w,h); if(hover){diffCtx.fillStyle='rgba(255,255,255,0.18)'; diffCtx.fillRect(x,y,w,h);} diffCtx.globalAlpha=dim?0.35:1; diffCtx.fillStyle='#fff'; diffCtx.font='500 18px Tomorrow,monospace'; diffCtx.textAlign='center'; diffCtx.textBaseline='middle'; diffCtx.fillText(label,x+w/2,y+h/2); diffCtx.globalAlpha=1; diffBtns.push({x:x,y:y,w:w,h:h,label:label,fn:fn}); }
+        dBtn(44,42,200,44,buyLabel, dimBuy?null:function(){it.buy();drawMenu();}, dimBuy);
+        dBtn(268,42,200,44,'BACK', function(){shopSelected=null;drawMenu();}, false);
+        })(); diffTex.needsUpdate=true; if(!diffMesh.visible) boardShow(diffMesh); placeDiffPanel();
       } else {
         const COLS=3, CELL_W=280, CELL_H=88, GAP=24, OX=60, OY=108;
         catalog.forEach(function(it, idx){
@@ -553,7 +579,10 @@ function drawMenu() {
           ctx.fillText(owned ? 'OWNED' : it.price+' CC', x+CELL_W/2, y+CELL_H-10);
           ctx.textAlign='left';
         });
-        panelBtn(menuBtns, 60, 452, 380, 44, 'BACK', function() { view = 'loadout'; drawMenu(); });
+        diffBtns.length=0; diffCtx.clearRect(0,0,DIFF_CW,DIFF_CH); diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=3; diffCtx.strokeRect(4,4,DIFF_CW-8,DIFF_CH-8);
+        (function(){ function dBtn(x,y,w,h,label,fn){ const hover=label===hoverLabel&&!!fn; diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=hover?4:2.5; diffCtx.strokeRect(x,y,w,h); if(hover){diffCtx.fillStyle='rgba(255,255,255,0.18)'; diffCtx.fillRect(x,y,w,h);} diffCtx.fillStyle='#fff'; diffCtx.font='500 18px Tomorrow,monospace'; diffCtx.textAlign='center'; diffCtx.textBaseline='middle'; diffCtx.fillText(label,x+w/2,y+h/2); diffBtns.push({x:x,y:y,w:w,h:h,label:label,fn:fn}); }
+        dBtn(66,42,380,44,'BACK', function(){view='loadout';drawMenu();}, false);
+        })(); diffTex.needsUpdate=true; if(!diffMesh.visible) boardShow(diffMesh); placeDiffPanel();
       }
     } else if (view === 'loadout') {
 
@@ -575,8 +604,11 @@ function drawMenu() {
       }
       panelRow(menuBtns, y, '5  HP BOX ×' + boxCount(), []);
       panelRow(menuBtns, y + 56, '6  RC CAR ' + (rcOwned() ? '×' + rcMaxUses() + ' /MAP' : '(buy in SHOP)'), []);
-      panelBtn(menuBtns, 60, 452, 200, 44, 'SHOP', function() { view = 'shop'; shopSelected=null; drawMenu(); }, false, 20);
-      panelBtn(menuBtns, 280, 452, 200, 44, 'BACK', function() { view = 'hub'; drawMenu(); }, false, 20);
+      diffBtns.length=0; diffCtx.clearRect(0,0,DIFF_CW,DIFF_CH); diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=3; diffCtx.strokeRect(4,4,DIFF_CW-8,DIFF_CH-8);
+      (function(){ function dBtn(x,y,w,h,label,fn){ const hover=label===hoverLabel&&!!fn; diffCtx.strokeStyle='#fff'; diffCtx.lineWidth=hover?4:2.5; diffCtx.strokeRect(x,y,w,h); if(hover){diffCtx.fillStyle='rgba(255,255,255,0.18)'; diffCtx.fillRect(x,y,w,h);} diffCtx.fillStyle='#fff'; diffCtx.font='500 18px Tomorrow,monospace'; diffCtx.textAlign='center'; diffCtx.textBaseline='middle'; diffCtx.fillText(label,x+w/2,y+h/2); diffBtns.push({x:x,y:y,w:w,h:h,label:label,fn:fn}); }
+      dBtn(44,42,200,44,'SHOP', function(){view='shop';shopSelected=null;drawMenu();}, false);
+      dBtn(268,42,200,44,'BACK', function(){view='hub';drawMenu();}, false);
+      })(); diffTex.needsUpdate=true; if(!diffMesh.visible) boardShow(diffMesh); placeDiffPanel();
     } else if (view === 'custom') {
       panelBtn(menuBtns, 60, 150, 380, 56, 'UPLOAD MAP (.umm)', function() { fileInput.click(); }, false, 22);
       panelBtn(menuBtns, 60, 222, 380, 56, 'OPEN STUDIO', goStudio, false, 22);
@@ -1181,8 +1213,9 @@ function centerHit(pmesh, btns) {
   ray.setFromCamera(ndc, camera);
   const hits = ray.intersectObject(pmesh);
   if (!hits.length) return null;
-  const px = hits[0].uv.x * CW;
-  const py = (1 - hits[0].uv.y) * CH;
+  const cw = pmesh===diffMesh ? DIFF_CW : CW, ch = pmesh===diffMesh ? DIFF_CH : CH;
+  const px = hits[0].uv.x * cw;
+  const py = (1 - hits[0].uv.y) * ch;
   for (let i = 0; i < btns.length; i++) {
     const b = btns[i];
     if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) return b;
@@ -1192,6 +1225,7 @@ function centerHit(pmesh, btns) {
 function menuPanel() {
   if (winMesh.visible) return { m: winMesh, b: winBtns };
   if (storyMesh.visible) return { m: storyMesh, b: storyBtns };
+  if (diffMesh.visible) { ray.setFromCamera(ndc, camera); if (ray.intersectObject(diffMesh).length) { const h=centerHit(diffMesh,diffBtns); if(h) return {m:diffMesh,b:diffBtns}; } }
   if (adMesh.visible && mesh.visible) {
 
     ray.setFromCamera(ndc, camera);
@@ -1354,6 +1388,15 @@ function placePanelFixed(pmesh) {
   _pos.copy(camera.position);
   pmesh.position.copy(_pos).addScaledVector(_fwd, PANEL_DIST);
   pmesh.lookAt(_pos);
+  if(pmesh===mesh && diffMesh.visible) placeDiffPanel();
+}
+function placeDiffPanel(){
+  const up=new THREE.Vector3(0,1,0).applyQuaternion(mesh.quaternion);
+  const fwd=new THREE.Vector3(0,0,1).applyQuaternion(mesh.quaternion);
+  const bottom=new THREE.Vector3().copy(mesh.position).addScaledVector(up,-0.55);
+  diffMesh.position.copy(bottom).addScaledVector(up,-0.21).addScaledVector(fwd,0.09);
+  diffMesh.quaternion.copy(mesh.quaternion);
+  diffMesh.rotateX(-0.55);
 }
 
 
