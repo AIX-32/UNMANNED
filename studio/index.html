@@ -744,6 +744,21 @@ kbd {
     color: #ffffff;
     border-color: #5a5a5a;
 }
+.place-chips{display:flex;gap:4px;margin:2px 0}
+.place-chip{flex:1;padding:7px 6px;background:#1e1e1e;border:1px solid #333;text-align:center;cursor:pointer;font-size:11px;color:#a0a0a0;transition:.12s;user-select:none}
+.place-chip:hover{background:#2a2a2a;border-color:#444;color:#fff}
+.place-chip.on{background:#1e4b7a;border-color:#3a7abd;color:#fff;font-weight:600}
+.place-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;max-height:190px;overflow-y:auto;padding:1px}
+.place-card{padding:8px 6px;background:#1e1e1e;border:1px solid #2e2e2e;cursor:pointer;text-align:center;transition:.12s}
+.place-card:hover{border-color:#3a3a3a;background:#252525}
+.place-card.on{border-color:#3a7abd;background:#1e2e4a;color:#fff;box-shadow:inset 0 0 0 1px #4a8adf}
+.place-card .ic{font-size:16px;display:block;margin-bottom:3px}
+.place-card .lbl{font-size:10px;color:#b0b0b0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.place-card.on .lbl{color:#fff}
+.prim-chips{display:flex;gap:4px}
+.prim-chip{flex:1;padding:6px;background:#1e1e1e;border:1px solid #333;text-align:center;cursor:pointer;font-size:10px}
+.prim-chip:hover{background:#252525;border-color:#444}
+.prim-chip.on{background:#1e4b7a;border-color:#3a7abd;color:#fff}
 
 .shint {
     color: #6a6a6a;
@@ -1037,15 +1052,13 @@ kbd {
 <div class="fwin" id="placeFwin" style="left:330px;top:40px;width:300px;display:none">
   <div class="fwin-head"><span class="fwin-title">PLACE</span><button class="fwin-close" id="placeFwinClose">×</button></div>
   <div class="fwin-body">
-      <div class="row"><label>kind</label>
-        <select id="placeKind"><option value="prop">prop (gltf)</option><option value="block">block</option><option value="ent">entity</option></select>
-      </div>
-      <div class="row" id="rowModel"><label>model</label><select id="modelSel"></select></div>
+      <div class="place-chips" id="placeKindChips"></div>
+      <select id="placeKind" style="display:none"><option value="prop">prop (gltf)</option><option value="block">block</option><option value="ent">entity</option></select>
+      <div id="rowModel"><input type="text" id="modelSearch" placeholder="filter models…" style="width:100%;background:#111;border:1px solid #333;color:#ccc;padding:4px 6px;font-size:11px;margin-bottom:4px"><div id="modelGrid" class="place-grid"></div><select id="modelSel" style="display:none"></select></div>
       <div id="blockOpts" style="display:none">
-        <div class="row"><label>prim</label>
-          <select id="primSel"><option value="box">box</option><option value="plane">plane</option><option value="cyl">cylinder</option></select>
-          <label style="margin-left:auto"><input type="checkbox" id="blockSolid" checked> solid</label>
-        </div>
+        <div class="prim-chips" id="primChips"></div>
+        <select id="primSel" style="display:none"><option value="box">box</option><option value="plane">plane</option><option value="cyl">cylinder</option></select>
+        <div class="row"><label style="margin-left:auto"><input type="checkbox" id="blockSolid" checked> solid</label></div>
         <div class="row"><label>size</label>
           w<input type="number" id="szW" value="4" step="0.5">
           h<input type="number" id="szH" value="2.5" step="0.5">
@@ -1058,29 +1071,24 @@ kbd {
           v<input type="number" id="repV" value="1" step="0.5" min="0.25">
         </div>
       </div>
-      <div class="row" id="rowEntKind" style="display:none"><label>entity</label>
-        <select id="entSel">
+      <div id="rowEntKind" style="display:none"><input type="text" id="entSearch" placeholder="filter entities…" style="width:100%;background:#111;border:1px solid #333;color:#ccc;padding:4px 6px;font-size:11px;margin-bottom:4px"><div id="entGrid" class="place-grid"></div><select id="entSel" style="display:none">
           <option value="player">player spawn</option>
           <option value="pvp">pvp spawn</option>
           <option value="drone">drone</option>
           <option value="ugv">UGV</option>
           <option value="turret">machine-gun turret</option>
           <option value="boss">TAT-10 boss</option>
-          <option value="tank">tank</option>
+          <option value="tank">tank (driveable)</option>
           <option value="target">target</option>
           <option value="healthbox">health box pickup</option>
           <option value="radio">radio (collect to win)</option>
           <option value="car">car (buggy)</option>
           <option value="extract">extract zone</option>
-        </select>
-      </div>
-      <div class="row" id="rowEntTeam" style="display:none"><label>team</label>
-        <select id="teamSel">
+        </select></div>
+      <div id="rowEntTeam" style="display:none"><div class="place-chips" id="teamChips"></div><select id="teamSel" style="display:none">
           <option value="1">1</option>
           <option value="2">2</option>
-        </select>
-        <span style="color:#888">the numbered spawn each team starts at</span>
-      </div>
+        </select><span style="color:#888;font-size:9px;margin-left:6px">team spawn</span></div>
       <div class="row" id="rowScale"><label>scale</label><input type="range" id="placeScale" min="0.2" max="6" step="0.05" value="1"><span id="placeScaleV">1.00</span></div>
       <div class="row"><label>rotY</label><input type="range" id="placeRotY" min="-180" max="180" step="5" value="0"><span id="placeRotYV">0°</span></div>
       <div class="row" style="color:#888">aim + click = stamp (keeps going) · rotY spins the ghost · G snap</div>

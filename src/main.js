@@ -2,9 +2,9 @@
 
 import { scene, camera, gunScene, postMat, renderFrame } from './core.js';
 import { S, GUN_POS, GUN_ROT, ADS_POS, ADS_ROT, recoilPivot, inGun, takeLook } from './state.js';
-import { updateFiring, hudInfo, flashSync, FLASH, FLASH_DEBUG, curWeaponName, getGunModel, flash, getMuzzleFlash, reloadK, switchK, getWorldFlash, updateLandingMarker, wgsSpeedBoost, weaponSpeedMul, bashRot, bashThrust, viewPos, viewRot, updateBoxUse, cancelBox, boxDip, boxUseInfo } from './weapons.js';
+import { updateFiring, hudInfo, flashSync, FLASH, FLASH_DEBUG, curWeaponName, getGunModel, flash, getMuzzleFlash, reloadK, switchK, getWorldFlash, updateLandingMarker, wgsSpeedBoost, weaponSpeedMul, bashRot, bashThrust, viewPos, viewRot, updateBoxUse, cancelBox, boxDip, boxUseInfo, brainTargetPos } from './weapons.js';
 import { updateAmmoUI, updateHpUI, updateCcUI, updateRadarUI, updateGrenadeUI, updatePvpHud, updateHudVisibility, setHpFlash, showDeathScreen, hideDeathBoard, flashDbg, placeUIPanels, showSubtitle, updateSubtitle, placeBossHud, updateBoxBar, hideBoxBar, requestGameLock } from './ui.js';
-import { resolveCollisions, updateTurret, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull, updateRain } from './world.js';
+import { resolveCollisions, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull, updateRain } from './world.js';
 import { updateUgv, allUgvsDead, ugvCount, lowerCert as ugvLowerCert } from './ugv.js';
 import { updateTurrets, allTurretsDead, turretCount, lowerCert as turretLowerCert } from './turret.js';
 import { updateDrone, lowerCert as droneLowerCert } from './drone.js';
@@ -15,13 +15,14 @@ import { updateIdent } from './ident.js';
 import { updateRadar } from './radar.js';
 import { updatePvp } from './pvp.js';
 import { updateCars, isDriving, exitCar } from './car.js';
+import { updateTanks, isTankDriving, exitTank, tankShoot, hideAim as hideTankAim } from './tank.js';
 import { updateRc, rcActive, rcHud } from './rc.js';
 import { updateMortar, isMortarActive, mortarBlocksMove, mortarHud } from './mortar.js';
 import { updateBonics, bonicsRaiseK, isBonicsZoomed, isBonicsActive } from './weapons.js';
 import { updatePhoto } from './photo.js';
 import './signalling.js';
 import './input.js';
-import { showWin, updateHubIntro, updateStoryCutscene } from './menu.js';
+import { showWin, updateHubIntro, updateStoryCutscene, bootActive } from './menu.js';
 import { TICK_DT, consumeTicks } from './tick.js';
 
 function getForward() {
@@ -69,6 +70,7 @@ const _tFwd = new THREE.Vector3();
 const _tRight = new THREE.Vector3();
 const _aimEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _swayQuat = new THREE.Quaternion();
+const _bP = new THREE.Vector3(), _bQ = new THREE.Quaternion(), _bV = new THREE.Vector3();
 
 
 
@@ -556,6 +558,12 @@ function updateViewmodel(dt, now, isMoving) {
     ry = THREE.MathUtils.lerp(ry, 0, br);
     rz = THREE.MathUtils.lerp(rz, 0, br);
   }
+  if (S.settings.brain && S.straf && brainTargetPos(_bP)) {
+    _bQ.copy(camera.quaternion).invert();
+    _bV.copy(_bP).sub(camera.position).applyQuaternion(_bQ).normalize();
+    ry = -Math.asin(THREE.MathUtils.clamp(_bV.x, -1, 1));
+    rx = Math.atan2(-_bV.y, -_bV.z);
+  }
   gunModel.position.set(px, py, pz);
   gunModel.rotation.set(rx, ry, rz);
   boxDip(sk);
@@ -580,7 +588,7 @@ function updateViewmodel(dt, now, isMoving) {
 function playTick(dt, now) {
   updateMortar(dt);
   updateBonics(dt);
-  const wasDriving = isDriving();
+  const wasDriving = isDriving() || isTankDriving();
   const wasRc = rcActive();
   const mort = isMortarActive();
   if (wasDriving || wasRc || mort) gunScene.visible = false; else gunScene.visible = true;
@@ -625,7 +633,6 @@ function playTick(dt, now) {
   updateLandingMarker();
   updateIdent(dt, now);
 
-  updateTurret(dt);
   updateUgv(dt, now);
 
 
@@ -645,6 +652,7 @@ function playTick(dt, now) {
   updateCml(dt, now, curWeaponName() === 'CML-2');
   if (S.pvp) updatePvp(dt, now);
   updateCars(dt, now);
+  updateTanks(dt, now);
   updateRc(dt, now);
 
 
@@ -684,6 +692,7 @@ function animate() {
 
 
   if (S.won) {
+    try{ hideTankAim(); }catch(e){}
     camera.quaternion.setFromEuler(S.euler);
     decayCA(frameDt);
     updateRain(frameDt);
@@ -691,6 +700,14 @@ function animate() {
     return;
   }
 
+  // not running until first click to lock // ponytail: freeze ticks before boot
+  if (!S.hub && bootActive()) {
+    camera.quaternion.setFromEuler(S.euler);
+    decayCA(frameDt);
+    updateRain(frameDt);
+    renderFrame(now);
+    return;
+  }
 
 
   if (S.dead && !S.respawnRequested) {
@@ -706,8 +723,10 @@ function animate() {
     }
   }
   if (isDriving() && S.dead) exitCar();
+  if (isTankDriving() && S.dead) exitTank();
   if (S.respawnRequested) {
     if (isDriving()) exitCar();
+    if (isTankDriving()) exitTank();
 
     const sp = S.pvp ? (function() {
       const pv = (MAP_SPAWNS.pvp || []).find(function(s) { return s.team === S.pvpTeam; }) || (MAP_SPAWNS.pvp || [])[0];

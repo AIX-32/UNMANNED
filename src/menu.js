@@ -1208,6 +1208,19 @@ document.addEventListener('click', function(e) {
 
 
   if (!(S.hub || S.won || S.story || pvpLobbyActive())) return;
+  // won while unlocked: allow direct mouse click on win board (tank case freed cursor)
+  if (S.won && !S.isLocked) {
+    const p = menuPanel();
+    if (!p) return;
+    ndc.set((e.clientX / innerWidth)*2 -1, -(e.clientY / innerHeight)*2 +1);
+    ray.setFromCamera(ndc, camera);
+    const hits = ray.intersectObject(p.m);
+    if (!hits.length) return;
+    const px = hits[0].uv.x * CW;
+    const py = (1 - hits[0].uv.y) * CH;
+    for (let i=0;i<p.b.length;i++){ const b=p.b[i]; if(px>=b.x && px<=b.x+b.w && py>=b.y && py<=b.y+b.h && b.fn){ b.fn(); return; } }
+    return;
+  }
   if (!S.isLocked) { requestGameLock(); return; }
   const p = menuPanel();
   if (!p) return;

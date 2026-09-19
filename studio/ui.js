@@ -122,8 +122,132 @@ export function fillModelSelect() {
     o.value = m; o.textContent = m.replace('.gltf', '');
     sel.appendChild(o);
   });
-  sel.addEventListener('change', makeGhost);
+  sel.addEventListener('change', function(){ syncModelGrid(); makeGhost(); });
+  renderModelGrid();
+  renderPlaceKindChips();
+  renderPrimChips();
+  renderEntGrid();
+  renderTeamChips();
+  syncPlaceKindChips();
+  syncPrimChips();
+  syncEntGrid();
+  syncTeamChips();
 }
+function renderPlaceKindChips(){
+  const wrap=$('placeKindChips'); if(!wrap) return;
+  const kinds=[['prop','PROP'],['block','BLOCK'],['ent','ENTITY']];
+  wrap.innerHTML='';
+  kinds.forEach(function(k){
+    const b=document.createElement('div'); b.className='place-chip'; b.dataset.v=k[0];
+    b.textContent=k[1];
+    b.onclick=function(){ const s=$('placeKind'); s.value=k[0]; s.dispatchEvent(new Event('change',{bubbles:true})); syncPlaceKindChips(); };
+    wrap.appendChild(b);
+  });
+}
+function syncPlaceKindChips(){
+  const v=$('placeKind').value;
+  document.querySelectorAll('#placeKindChips .place-chip').forEach(function(c){ c.classList.toggle('on', c.dataset.v===v); });
+}
+function renderModelGrid(){
+  const g=$('modelGrid'); if(!g) return;
+  g.innerHTML='';
+  MODELS.forEach(function(m){
+    const card=document.createElement('div'); card.className='place-card'; card.dataset.v=m;
+    const name=m.replace('.gltf','');
+    card.innerHTML='<span class="lbl">'+name+'</span>';
+    card.onclick=function(){ const s=$('modelSel'); s.value=m; s.dispatchEvent(new Event('change',{bubbles:true})); syncModelGrid(); };
+    g.appendChild(card);
+  });
+  syncModelGrid();
+  // prevent wheel zoom while scrolling grid
+  g.addEventListener('wheel', function(e){ e.stopPropagation(); }, {passive:false});
+}
+function syncModelGrid(){
+  const v=$('modelSel').value;
+  document.querySelectorAll('#modelGrid .place-card').forEach(function(c){ c.classList.toggle('on', c.dataset.v===v); });
+}
+function renderPrimChips(){
+  const w=$('primChips'); if(!w) return;
+  const prims=[['box','BOX'],['plane','PLANE'],['cyl','CYL']];
+  w.innerHTML='';
+  prims.forEach(function(p){
+    const b=document.createElement('div'); b.className='prim-chip'; b.dataset.v=p[0];
+    b.textContent=p[1];
+    b.onclick=function(){ const s=$('primSel'); s.value=p[0]; s.dispatchEvent(new Event('change',{bubbles:true})); syncPrimChips(); };
+    w.appendChild(b);
+  });
+}
+function syncPrimChips(){
+  const v=$('primSel').value;
+  document.querySelectorAll('#primChips .prim-chip').forEach(function(c){ c.classList.toggle('on', c.dataset.v===v); });
+}
+const ENT_META={
+  player:['P','player spawn'], pvp:['⚔','pvp spawn'], drone:['✈','drone'], ugv:['⬢','UGV'], turret:['⌖','turret'], boss:['☠','boss'], tank:['⎔','tank'], target:['◎','target'], healthbox:['✚','healthbox'], radio:['◉','radio'], car:['🚙','car'], extract:['⬢','extract']
+};
+function renderEntGrid(){
+  const g=$('entGrid'); if(!g) return;
+  const sel=$('entSel');
+  g.innerHTML='';
+  Array.from(sel.options).forEach(function(o){
+    const v=o.value; const meta=ENT_META[v]||[o.textContent[0], o.textContent];
+    const card=document.createElement('div'); card.className='place-card'; card.dataset.v=v;
+    card.innerHTML='<span class="lbl">'+meta[1]+'</span>';
+    card.onclick=function(){ sel.value=v; sel.dispatchEvent(new Event('change',{bubbles:true})); syncEntGrid(); };
+    g.appendChild(card);
+  });
+  syncEntGrid();
+  g.addEventListener('wheel', function(e){ e.stopPropagation(); }, {passive:false});
+}
+function syncEntGrid(){
+  const v=$('entSel').value;
+  document.querySelectorAll('#entGrid .place-card').forEach(function(c){
+    c.classList.toggle('on', c.dataset.v===v);
+    c.style.display = c.dataset.v==='pvp' && !$('pvpToggle').checked ? 'none' : (c.dataset.v==='player' && $('pvpToggle') && $('pvpToggle').checked ? 'none' : '');
+  });
+}
+function renderTeamChips(){
+  const w=$('teamChips'); if(!w) return;
+  w.innerHTML='';
+  [['1','TEAM 1','1'],['2','TEAM 2','2']].forEach(function(t){
+    const b=document.createElement('div'); b.className='place-chip'; b.dataset.v=t[0];
+    b.textContent=t[1];
+    b.onclick=function(){ const s=$('teamSel'); s.value=t[0]; s.dispatchEvent(new Event('change',{bubbles:true})); syncTeamChips(); };
+    w.appendChild(b);
+  });
+}
+function syncTeamChips(){
+  const v=$('teamSel').value;
+  document.querySelectorAll('#teamChips .place-chip').forEach(function(c){ c.classList.toggle('on', c.dataset.v===v); });
+}
+function wirePlaceSearch(){
+  const ms=$('modelSearch'), es=$('entSearch');
+  if(ms && !ms._wired){
+    ms._wired=true;
+    ms.addEventListener('input', function(){
+      const q=this.value.toLowerCase().trim();
+      document.querySelectorAll('#modelGrid .place-card').forEach(function(c){
+        c.style.display = !q || c.dataset.v.toLowerCase().indexOf(q)>=0 || c.textContent.toLowerCase().indexOf(q)>=0 ? '' : 'none';
+      });
+    });
+  }
+  if(es && !es._wired){
+    es._wired=true;
+    es.addEventListener('input', function(){
+      const q=this.value.toLowerCase().trim();
+      document.querySelectorAll('#entGrid .place-card').forEach(function(c){
+        const vis = !q || c.dataset.v.toLowerCase().indexOf(q)>=0 || c.textContent.toLowerCase().indexOf(q)>=0;
+        // keep pvp hidden logic intact
+        const isPvp=c.dataset.v==='pvp', isPlayer=c.dataset.v==='player';
+        const pvpOn=$('pvpToggle') && $('pvpToggle').checked;
+        if((isPvp && !pvpOn) || (isPlayer && pvpOn)) c.style.display='none';
+        else c.style.display = vis ? '' : 'none';
+      });
+    });
+  }
+}
+// call once after grids built
+setTimeout(wirePlaceSearch, 0);
+document.addEventListener('DOMContentLoaded', wirePlaceSearch);
 
 export function handleKey(e) {
   switch (e.code) {
@@ -177,13 +301,16 @@ export function initUI() {
     $('rowModel').style.display = this.value === 'prop' ? '' : 'none';
     $('blockOpts').style.display = this.value === 'block' ? '' : 'none';
     $('rowEntKind').style.display = this.value === 'ent' ? '' : 'none';
+    try{ syncPlaceKindChips(); }catch(e){}
     makeGhost();
   });
   $('entSel').addEventListener('change', function() {
     $('rowEntTeam').style.display = this.value === 'pvp' ? '' : 'none';
+    try{ syncEntGrid(); }catch(e){}
     makeGhost();
   });
-  $('teamSel').addEventListener('change', makeGhost);
+  $('teamSel').addEventListener('change', function(){ try{ syncTeamChips(); }catch(e){} makeGhost(); });
+  $('primSel').addEventListener('change', function(){ try{ syncPrimChips(); }catch(e){} makeGhost(); });
 
 
   function syncPvpUi() {
@@ -199,6 +326,7 @@ export function initUI() {
     if (on && $('entSel').value === 'player') $('entSel').value = 'pvp';
     if (!on && $('entSel').value === 'pvp') $('entSel').value = 'player';
     $('rowEntTeam').style.display = $('entSel').value === 'pvp' ? '' : 'none';
+    try{ syncEntGrid(); syncTeamChips(); }catch(e){}
   }
   $('pvpToggle').addEventListener('change', function() {
     S.map.pvp = this.checked;

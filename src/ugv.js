@@ -137,6 +137,10 @@ export function evadedShot(srcPos) {
 }
 export function damagePlayer(dmg, srcPos) {
   if (S.dead || dmg <= 0) return;
+  // tank absorbs damage instead of player // ponytail: delegate to tank
+  if (S.tankDriving && typeof window !== 'undefined' && window.__gaultDamageTank) {
+    try{ window.__gaultDamageTank(dmg, srcPos); return; }catch(e){}
+  }
   S.hp -= dmg;
   S.hpFlash = 1;
 

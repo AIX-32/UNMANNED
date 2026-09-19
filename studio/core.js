@@ -56,7 +56,9 @@ scene.fog = new THREE.FogExp2(0x1a1512, 0.010);
 let fogHidden = false;
 let fogSlider = 50;
 function sliderToDensity(v){
-  return 0.020 - (Math.max(0,Math.min(100,parseFloat(v)||0))*0.00018);
+  v=Math.max(0,Math.min(100,parseFloat(v)||0));
+  const r=18+v*8.4; // ponytail: 18m at 0 → 858m at 100, was 85m→850m linear density
+  return 1.7/r;
 }
 export function setFogHidden(v){
   fogHidden = !!v;
@@ -71,6 +73,14 @@ export function setFogSlider(v){
   if (scene.fog && !fogHidden) scene.fog.density = sliderToDensity(fogSlider);
 }
 export function getFogSlider(){ return fogSlider; }
+// ponytail: visible radius where fog ~98% opaque → hide stuff behind it for less lag
+export function fogCullR2(){
+  if (fogHidden || !scene.fog) return Infinity;
+  const d = scene.fog.density;
+  if (!d || d < 0.0005) return Infinity;
+  const r = 2.0 / d * 0.85;
+  return r * r;
+}
 try{ const s = localStorage.getItem('gault_hidefog'); if(s==='1') fogHidden = true; }catch(e){}
 try{ const f = localStorage.getItem('gault_fogSlider'); if(f!=null) fogSlider = Math.max(0,Math.min(100,parseFloat(f)||50)); }catch(e){}
 if (scene.fog) scene.fog.density = fogHidden ? 0 : sliderToDensity(fogSlider);
@@ -154,9 +164,9 @@ function fixModel(m) {
     if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
   });
 }
-export const MODELS = ['tree.gltf', 'bush.gltf', 'tank.gltf', 'tankhead.gltf', 'target.gltf', 'UGV.gltf',
+export const MODELS = ['tree.gltf', 'bush.gltf', 'target.gltf', 'UGV.gltf',
                        'UGVdes.gltf', 'frag.gltf', 'drone.gltf', 'inflat.gltf'];
-export const DEFAULT_SCALE = { 'tree.gltf': 0.95, 'bush.gltf': 1.5, 'tank.gltf': 2.55, 'target.gltf': 1.5 };
+export const DEFAULT_SCALE = { 'tree.gltf': 0.95, 'bush.gltf': 1.5, 'target.gltf': 1.5 };
 const protoCache = {};
 export function loadProto(file, cb) {
   if (protoCache[file]) return cb(protoCache[file]);
@@ -341,16 +351,16 @@ export function markerSprite(text, color) {
 }
 export function buildEntityVisual(e, i) {
   const tag = function(o) { o.userData.ent = i; };
-  if (e.kind === 'tank' || e.kind === 'target' || e.kind === 'turret' || e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio') {
-    const file = e.kind === 'tank' ? 'tank.gltf' : e.kind === 'turret' ? 'turret.gltf' : e.kind === 'boss' ? 'TAT-10.gltf' : e.kind === 'healthbox' ? 'HPB.gltf' : e.kind === 'car' ? 'buggy.gltf' : e.kind === 'radio' ? 'radio.gltf' : 'target.gltf';
-    const sc = e.kind === 'tank' ? 2.55 : e.kind === 'turret' ? 1.6 : e.kind === 'boss' ? 1 : e.kind === 'healthbox' ? 1.3 : e.kind === 'car' ? 1.0 : e.kind === 'radio' ? 1 : 1.5;
+  if (e.kind === 'target' || e.kind === 'turret' || e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio' || e.kind === 'tank') {
+    const file = e.kind === 'turret' ? 'turret.gltf' : e.kind === 'boss' ? 'TAT-10.gltf' : e.kind === 'healthbox' ? 'HPB.gltf' : e.kind === 'car' ? 'buggy.gltf' : e.kind === 'tank' ? 'tankv2.gltf' : e.kind === 'radio' ? 'radio.gltf' : 'target.gltf';
+    const sc = e.kind === 'turret' ? 1.6 : e.kind === 'boss' ? 1 : e.kind === 'healthbox' ? 1.3 : e.kind === 'car' ? 1.0 : e.kind === 'tank' ? 1.5 : e.kind === 'radio' ? 1 : 1.5;
     loadProto(file, function(proto) {
       const m = proto.clone();
       m.scale.setScalar(sc);
       const gy = sampleHeight(e.pos[0], e.pos[1]);
       m.position.set(e.pos[0], gy, e.pos[1]);
       m.rotation.y = THREE.MathUtils.degToRad(e.rotY || 0);
-      if (e.kind === 'tank' || e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio') {
+      if (e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio' || e.kind === 'tank') {
         m.updateMatrixWorld(true);
         const bb = new THREE.Box3().setFromObject(m);
         m.position.y = gy - bb.min.y;
@@ -359,7 +369,7 @@ export function buildEntityVisual(e, i) {
       markGroup.add(m);
     });
   }
-  const colors = { player: '#7fbf4f', drone: '#ff5a5a', ugv: '#ffb84c', turret: '#ff6a6a', tank: '#ffb84c', target: '#dddddd', boss: '#ff3b6b', healthbox: '#5ef77f', car: '#ffcc33', radio: '#5ef7f0', extract: '#5ab4ff', pvp1: '#5ac8ff', pvp2: '#ff5a5a' };
+  const colors = { player: '#7fbf4f', drone: '#ff5a5a', ugv: '#ffb84c', turret: '#ff6a6a', tank: '#8fb8ff', target: '#dddddd', boss: '#ff3b6b', healthbox: '#5ef77f', car: '#ffcc33', radio: '#5ef7f0', extract: '#5ab4ff', pvp1: '#5ac8ff', pvp2: '#ff5a5a' };
   const labels = { player: 'P', drone: 'D', ugv: 'U', turret: 'M', tank: 'T', target: 'X', boss: 'B', healthbox: 'H', car: 'C', radio: 'R', extract: 'E' };
   const s = markerSprite(labels[e.kind] || (e.kind === 'pvp' ? String(e.team || 1) : '?'), colors[e.kind] || (e.kind === 'pvp' ? (e.team === 2 ? colors.pvp2 : colors.pvp1) : '#fff'));
   s.position.set(e.pos[0], sampleHeight(e.pos[0], e.pos[1]) + 2.2, e.pos[1]);

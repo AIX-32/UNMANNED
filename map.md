@@ -2,7 +2,7 @@
 
 A retro-looking FPS combining retro graphics with realistic mechanics. Old three.js (2021, r132-ish, no color management — hence `fixGun`'s LinearEncoding hack).
 
-> **Current:** code is at `907cf08` (pre-100-perf-batch) + opening-credits/tut-fade + `Ardebin→Opening creds` rename. `map.md` was written at `b806ed1` after the perf sweep; most of it still holds (chunked foliage/rain/shockwaves etc. pre-existed), but any perf numbers that landed in `b01a2d1..b806ed1` are not in this checkout.
+> **Current:** code is at `907cf08` + tankv2 + fog 18→858m + FPS toggle + inGrass 16m hash. `map.md` refreshed 2026-09-18 for tankv2/place polish; refreshed 2026-09-19 for fog/FPS/inGrass.
 
 ## Boot Flow
 
@@ -24,11 +24,11 @@ A retro-looking FPS combining retro graphics with realistic mechanics. Old three
 ## Layout
 
 ```
-index.html            boot page: font, prompt div, boot loader overlay (#loader/#loaderText), map-boot script, script tags (title: UNMANNED)
+index.html            boot page: font, prompt div, `#info` (`UNMANNED v0.9.7` + optional `· 60 FPS`), boot loader overlay (#loader/#loaderText), map-boot script, script tags (title: UNMANNED)
 src/                  game modules (ES modules, import from './core.js' etc.)
 studio/               MAP STUDIO: ES-module 3D editor → exports map JSON (see below)
 assets/
-  models/             .gltf (base64-embedded, no sidecars) — except tree.gltf, which pairs with tree.bin (Sketchfab "Low Poly Tree 1", scale 0.95 default). incl: drone.gltf, turret.gltf (stationary MG emplacement, alpha-masked single baseColorTexture), TAT-10.gltf (boss ~5.5m×2.9m at scale 1; gun barrel at model -Z, missile launchers at ±1.5 y=2.4 z=-0.4), missle.gltf (boss missile: nose=-Z, base=+Z, no rotation), HPB.gltf (health-box held-item viewmodel, Blockbench cube), buggy.gltf (Blockbench buggy with 4 cylinder wheels under `wheels` group, see car.js), rc.gltf (Blockbench toy RC car — box body/wheels, shop item, see rc.js)
+  models/             .gltf (base64-embedded, no sidecars) — except tree.gltf, which pairs with tree.bin (Sketchfab "Low Poly Tree 1", scale 0.95 default). incl: drone.gltf, turret.gltf (stationary MG emplacement, alpha-masked single baseColorTexture), TAT-10.gltf (boss ~5.5m×2.9m at scale 1; gun barrel at model -Z, missile launchers at ±1.5 y=2.4 z=-0.4), missle.gltf (boss missile: nose=-Z, base=+Z, no rotation), HPB.gltf (health-box held-item viewmodel, Blockbench cube), buggy.gltf (Blockbench buggy with 4 cylinder wheels under `wheels` group, see car.js), rc.gltf (Blockbench toy RC car — box body/wheels, shop item, see rc.js), **tankv2.gltf** (driveable tank — single file, hull 3 meshes + `turret` group with `rotatespot` locator + turret mesh, see tank.js)
   audio/              sten.m4a, reload.mp3, shotgun_shot.mp3, shotgun_reload.mp3, drone_flight.mp3, buggy_engine.mp3 (bus loop 92K, pitch/volume by RPM), car_horn.mp3 (floraphonic 33K, horn via Space in car), opening_credits.mp3 (1.7M, 44s PCM 48k) + opening_credits.wav (8.1M) — first campaign map intro (see menu.js)
   textures/           grass.webp (ground), flash.png (muzzle sprite), buggy_ao.png (512 AO for old buggy fallback)
   fonts/              Undak-KVA3y.otf + Montserrat.ttf (legacy, now UNUSED) — all text uses Google Fonts "Tomorrow" (100–900)
@@ -70,14 +70,14 @@ Scene, camera, renderer (`antialias:false powerPreference:high-performance pixel
 - Three-pass frame: world → viewmodel (depth cleared) → post upsample.
 - **Explosion shockwaves** live in the post pass (`uShock[4]`): each is a screen-space expanding distortion ring that warps the frame (no color). `explodeAt` pushes `{pos, t0, dur:0.25}`; `renderFrame` decays them, projects the world pos to screen and fills the uniform (0 = inactive).
 - `frameNow` = last frame's clock seconds, so FX spawned outside main.js use the same clock.
-- **Fog**: `FogExp2(0x1a1512, 0.012)` default `0.020 - fogSlider*0.00018` where `fogSlider` 0–100 (`50≈0.011` near old 0.010/0.012). `setFogSlider(v)` persists `gault_fogSlider`, `getFogSlider()`. Map fog `j.fog` (0–100) overrides on `applyMap`.
+- **Fog**: `FogExp2(0x1a1512, 0.012)` default `r=18+v*8.4 → d=1.7/r` where `fogSlider` 0–100 (`0:18m` really close, `50:438m`, `100:858m`). Was `0.020 - v*0.00018` (`85m→850m` never felt close). `setFogSlider(v)` persists `gault_fogSlider`, `getFogSlider()`, `fogCullR2()` for culling. Map fog `j.fog` (0–100) overrides on `applyMap`.
 
 ### state.js
-Shared mutable bag `S` (keys, euler, lock flags, straf/ads/prone, aimErr(+T), recoil(+T), kickZ, shakeX/Y, fovPunch, caKick, zoomCur, wallProx, **`hp`/`maxHp`** (default 40/40 — health boxes overhealth above `maxHp`), settings, `hub`, `mapName`, `won`, `story`, `paused`, `worldReady`, `pendingLoads`, `spawn`, `mapCC`, `mapBoxes`, **`mapGrenades`** (default 4 — frag allowance per map), **`pvp`/`pvpTeam`/`killLimit`/`kills`/`pvpThem`/`pvpPeerName`**, **`pvpQuit`/`pvpBoom` bridges**, **`killerPos`/`killerYaw`**, **`killCam` bridge**, **`carDriving`** bool, GUN_POS/GUN_ROT/GUN_SCALE/STOCK_Z, ADS_POS/ADS_ROT, `recoilPivot`, `inGun()`).
+Shared mutable bag `S` (keys, euler, lock flags, straf/ads/prone, aimErr(+T), recoil(+T), kickZ, shakeX/Y, fovPunch, caKick, zoomCur, wallProx, **`hp`/`maxHp`** (default 40/40 — health boxes overhealth above `maxHp`), settings, `hub`, `mapName`, `won`, `story`, `paused`, `worldReady`, `pendingLoads`, `spawn`, `mapCC`, `mapBoxes`, **`mapGrenades`** (default 4 — frag allowance per map), **`pvp`/`pvpTeam`/`killLimit`/`kills`/`pvpThem`/`pvpPeerName`**, **`pvpQuit`/`pvpBoom` bridges**, **`killerPos`/`killerYaw`**, **`killCam` bridge**, **`carDriving`**/`**tankDriving**` bools + `tankDriving` index, GUN_POS/GUN_ROT/GUN_SCALE/STOCK_Z, ADS_POS/ADS_ROT, `recoilPivot`, `inGun()`).
 
 - Rule of thumb: anything written by >1 module lives in S; module-private state stays local.
 - `worldReady`/`pendingLoads` drive the boot loader (kept in S to dodge a world⇄menu import cycle).
-- `settings` = `{ strafLock, laptop, aimAssist:1.12 }` (persisted: gault_laptop, gault_aimassist).
+- `settings` = `{ strafLock, laptop, aimAssist:1.12, brain:false, showFps:false }` (persisted: gault_laptop, gault_aimassist, gault_brainassist, gault_showfps). `brain` = tank-style aim assist while straf; `showFps` = FPS counter beside `#info` version.
 
 ### audio.js
 One AudioContext, `decode(url)` helper, `play(buf,vol,dur)`, stenShot/shutShot/stenTail, `reloadSound(i)`, `getDroneBuffer()`, **radar sonar** (`sonarPlay()/sonarStop()/sonarPos()`).
@@ -88,9 +88,9 @@ One AudioContext, `decode(url)` helper, `play(buf,vol,dur)`, stenShot/shutShot/s
 - `sonar.mp3` (49.776s, `SONAR_DUR`) loops while the radar is on; its playback clock drives the radar scan line.
 
 ### world.js
-Lights (moon `1024` `castShadow` + `receiveShadow:false` on grass/rain, `precision mediump`, `matrixAutoUpdate:false` statics, merged walls `LineSegments` + block groups, `inGrass` memo, `resolveCollisions` squared dist, `groundHeight` `mn=-size/2`), terrain + `groundHeight(x,z)`, static props via `placeProp/placeTarget/placeTank` protos, blocks (`addBlock` + `mergeBlocks` groups), `applyMap(json)`, `MAP_SPAWNS`, **`inGrass(x,z)`**, colliders[] + collision core, **fog from map**, **chunked foliage + radio fix**, **rain volume**.
+Lights (moon `1024` `castShadow` + `receiveShadow:false` on grass/rain, `precision mediump`, `matrixAutoUpdate:false` statics, merged walls `LineSegments` + block groups, `inGrass` memo, `resolveCollisions` squared dist, `groundHeight` `mn=-size/2`), terrain + `groundHeight(x,z)`, static props via `placeProp/placeTarget` (tankv2 driveable via `tank.js`), blocks (`addBlock` + `mergeBlocks` groups), `applyMap(json)`, `MAP_SPAWNS`, **`inGrass(x,z)`**, colliders[] + collision core, **fog from map**, **chunked foliage + radio fix**, **rain volume**.
 
-- **Chunked foliage (perf for 600m/20k-grass maps like Jampo):** trees (`TREE_CHUNK=80`) and bushes (`BUSH_CHUNK=80`) built as `InstancedMesh` per chunk (Map `floor((x+1000)/80)`) → frustum culled per chunk; bush was 822 clones → ~10 instanced draws. Grass (`GRASS_CHUNK=64`) split into per-chunk `Mesh`es (1 mat clone/chunk, `computeBoundingSphere`), async `setTimeout` per chunk when `pts>4000` to avoid `applyMap` hitch, plus `updateGrassCull()` hides chunks >140m (`d2<19600`) called from `main.js` each frame and tree shadows disabled >100m.
+- **Chunked foliage (perf for 600m/20k-grass maps like Jampo):** trees (`TREE_CHUNK=80`) and bushes (`BUSH_CHUNK=80`) built as `InstancedMesh` per chunk (Map `floor((x+1000)/80)`) → `frustumCulled:false` (per-instance bounds too small, would pop clusters) + `DynamicDrawUsage` with `origs[]` stored for one-by-one fog cull (now removed for trees/bushes — only grass culls by fog). Grass (`GRASS_CHUNK=64`) split into per-chunk `Mesh`es (1 mat clone/chunk, `computeBoundingSphere`), async `setTimeout` per chunk when `pts>4000` to avoid `applyMap` hitch, plus `updateGrassCull()` hides grass chunks >`min(140m, fogR)` (`fogCullR2 1.7/d`, `18m at 0→858m at 100`) and tree shadows disabled >100m. `inGrass` now `16m` fine hash (`grassGrid` `16×16`) → `~34µs` vs `8k` linear `~2.6ms` (`39ms/frame` → `0.5ms`).
 - **Radio win fix:** `radioGot` counter + `radiosLeft()=radioTotal-radioGot` (was `pickups.length` → 0 at boot before async `loadProto` → instant win on Jampo's 5 radios); `radioGot` reset on `applyMap`.
 
 - **`applyNight(on, mid)`** sets night/midnight lighting for the world **and the gunScene viewmodel lights** (blue `0x6a8ac0` key, dark ambient/hemi on night; warm day setup otherwise) — so the gun no longer keeps an orange day tint on night maps. Also hides the spinning `sun.gltf` mesh on any night/midnight map.
@@ -101,7 +101,7 @@ Lights (moon `1024` `castShadow` + `receiveShadow:false` on grass/rain, `precisi
 - Default boot is `maps/hub.umm`; `loadDefaultMap()` falls back to `maps/Yazd.umm`, hardcoded `buildDefaultLayout()` only if the file is missing.
 - `resolveCollisions` takes optional `radius` + `segsAlwaysBlock` (the UGV passes its own radius and forces invisible walls to always block).
 - Ground meshes tagged `userData.ground` so shots raycast the terrain analytically instead of the 16k-tri plane.
-- `MAP_SPAWNS` = `{ player, ugvs, drones, turrets, bosses, ugvRoute, extract, sectors, pvp, cars }`.
+- `MAP_SPAWNS` = `{ player, ugvs, drones, turrets, bosses, ugvRoute, extract, sectors, pvp, cars, tanks }` (`tanks` = driveable `tankv2` spawns, see `tank.js`); `MAP_SPAWNS.tanks` fed by `kind:"tank"` entities.
 - On a `S.pvp` map every AI/healthbox entity is skipped — only `pvp` spawns count.
 - `setTerrain` now supports 50–1000m `size` (was 400 cap); `groundHeight` uses `mn=-size/2`. Note collider grid still `GRID_MIN -100 8m 25×25 = 200m` — terrain past ±100 shows but walls/blocks outside aren't queried.
 - **Rain** (`setRain`/`updateRain` + `main.js` tick incl. hub/won/story cut): single `LineSegments` cylinder following `camera` (`R=65`, `TOP=30`, `2100` streaks, `v` 14-22 + `len` 0.9-1.7 stretched, per-drop `dx/dz` drift, wind `sin*0.85+sin*1.7`, polar disc spawn + triangular `y = cy-5+(rand+rand)/2*(TOP+12)` so no top sheet on load, respawns at `cy+TOP` disc). Material `0xc9d7f0` `0.38` (`0x96a8c8`/`0.28` night) fogged.
@@ -127,6 +127,17 @@ Buggy vehicle — `F` near 3.2m to enter, camera rides `py+(1.55-baseY)` in midd
 - **Bail/coast/crash**: empty cars coast `drag 0.52+|v|*0.11`, speed*0.5 on hard hit; exit `|speed|>5` → `damagePlayer min(20,(sp-5)*2.4)`; ram `|speed|>2.5 & dist<3.1` → `damageUgv min(250,|sp|*14)` + `damagePlayer min(20,|sp|*0.9)` cooldown 0.65s, `speed*=0.42`.
 - **HUD**: `syncHudPositions()` snap each driving frame so world-mesh HUD doesn't trail (was 50ms interval).
 - `S.carDriving` set on enter/exit, `window.__gaultCars`.
+
+### tank.js
+Driveable tank `tankv2.gltf` (single file, `F` near 3.8m, 3rd-person). `tankv2`: hull 3 meshes + `turret` group at `y=1.125` with `rotatespot` locator `0,0,0.1875` + turret head/cannon mesh `0,-0.0625,0.1875`; code re-parents turret origin to `rotatespot` so yaw rotates on that pivot (not mesh center) — hides locators, scale `1.5`, `baseY` from AABB, `S.tankDriving`/`S.carDriving` block infantry fire, `window.__gaultTanks`.
+
+- **Physics (heavy)**: `MASS 8000`, `MAX 9 / -4.5`, `ACCEL 14`, `BRAKE 36`, `FRICTION 3.2*(1+absSp*0.08)` (short roll), brake-then-reverse: `S` while `speed>0.05` brakes `−BRAKE*dt` to `0`, holds `0.42s` then `−BRAKE*0.55*dt` reverse (symmetric `W` while reversing). Hill: `prePitch=atan2(hF-hB,3.4)`, `uphill=prePitch*moveDir`, `hillDrag=sin(uphill)*9.81*0.32` subtract, caps `>0.50→2.2 >0.62→0.9 >0.74→0.15+slide1.2 >0.86→0+slide2.8`, `|prePitch|>0.88→*0.88`; terrain `pitch/roll` `k=dt*6`, `resolveCollisions` radius `1.9`.
+- **Steer U-turn heavy**: `STATIONARY 0.58 / MOVING 0.46`, `YAW_ACCEL 1.9 / DAMP 0.42`, `targetYawRate=steer*rate*grip*(speedDir)*(0.55-1)*(1-1.45)`, `yawVel+=(target-yawVel)*dt*1.9`, `yawVel*=0.42^dt`, `yaw+=yawVel*dt`; turret follows hull `dYaw` added to `turretYaw`.
+- **Lean & shake**: `accelDelta=(speed-prev)/dt`, `targetLean=clamp(-accelDelta*0.0055, -0.10,0.08)`, spring `*10, 0.35^dt`; coasting nudge `0.0006`. Shake: movement `shakeAmp=min(0.02+absSp*0.003,0.05)* (accel?1:0.18)`, idle `0.007+absSp*0.0012)*(accel?1:0.35)`, yaw `rAmp=min(0.014+yaw*0.022,0.038)*(throttle?1:0.55)`.
+- **Turret**: yaw `rel=clamp(world-hull, ±2.0 rad)` mouse `*0.0022`, pitch `−0.32..+0.28 rad` mouse `Y*0.0016` (no mesh anim), dir via `_tankEuler.set(pitch,yaw,0,'YXZ')` `0,0,-1` `applyEuler`. `F` enter puts `turretYaw=yaw`, `F` exit at `+cos(yaw)*3.0`, `+3.5` on destroy.
+- **Combat**: `tankShoot()` muzzle `0,0.18,-1.75` `applyMatrix4(turretMesh)` + pitch/yaw dir, ray `180m` `Raycaster` filter `!tank/rain/ground` + ground march fallback, `PointLight 8/30 90ms` + `flash.png` sprite `1.2→3.0` additive, tracer `ffcc66 120ms`, `explodeAt(pos,40)` + `damageUgv` splash; recoil `shake 0.06/FOV6/CA4`, `pitchLean−0.12`, cooldown `1.4s`. HP `400/400`, `damageTank(dmg)` shows `TANK hp/400`, on `≤0` `explodeAt(pos,0)`, `TANK DESTROYED`, eject, `hideAim()`, `killTankAudio`.
+- **Aim pointer**: circular crosshair sprite (canvas 256, 3 rings `88/62/38`, cross + diagonal ticks, center dot `5` + `10` ring, `#eaffff` `CanvasTexture`, `SpriteMaterial` `depthTest:false` `renderOrder 999`, distance-scaled `d*0.028` `0.85-3.2`, `+0.12` toward cam, `filter !tank/rain/ground/aim`), updates each driving frame, `hideAim()` on `!driving/dead/exit`, opacity `0.92+sin*0.08` `*0.55` on cooldown.
+- **Polishing**: `buggy_engine.mp3` loop `Gain`, lerp `pitch 0.62+|speed|/9*0.42+|yawVel|*0.10+throttle*0.22`, `vol 0.09+throttle*0.34+|speed|/9*0.24+|yawVel|*0.09` (`0-0.78`), fade on idle/exit; dust pooled spheres `0.22` at rear `−fx*1.4` `0.32` opacity `0.85s`; cam clipped via `Raycaster lookAt→targetCam` `−0.45` + ground `+0.7`, `lerp 6` / `slerp 5`.
 
 ### rc.js
 Shop-bought RC car (once, `gault_rc`), a remote place-and-drive bomb with `USES_PER_MAP`(2) deployments per map.
@@ -200,11 +211,12 @@ Shared root module (like `idb.js`, importable from studio and game): RGB mean/st
 ### ui.js
 HUD/UI world-mesh canvases (single-combine comment, `66ms` snap, dirty `text!==` checks, `OffscreenCanvas` hook).
 
-- Ammo + HP HUD, **CC HUD** (top-left), **TAT-10 boss bar** (fixed top-center), **health-box progress bar** (green-fill, dead-center under crosshair), **pause menu + death screen** (2.2×1.1m world boards), **PvP score HUD** (`YOU n — m NAME · FIRST TO k`).
+- Ammo + HP HUD, **CC HUD** (top-left), **TAT-10 boss bar** (fixed top-center), **health-box progress bar** (green-fill, dead-center under crosshair), **pause menu + death screen** (2.2×1.1m world boards), **PvP score HUD** (`YOU n — m NAME · FIRST TO k`), **FPS counter** (`#info` `UNMANNED v0.9.7 · 60 FPS`, `400ms` `requestAnimationFrame` sampler, toggled by `FPS COUNTER` checkbox in `SETTINGS` → `gault_showfps`).
 - Death buttons: RESPAWN (-100 CC) on top + KILL CAM (cyan, left) / FULL RESTART (right) below. In a pvp match: free RESPAWN + KILL CAM + QUIT MATCH.
 - **Board pop animation**: shared pop system (`boardShow`/`boardReopen`/`boardHide` + one `boardTick`) — every board scales up from ~0 with smoothstep + a subtle mid-rise wobble.
 - `showSubtitle(text)` (world-mesh canvas, `subMesh` at `camera+up -0.45 + fwd 0.9`, 2.5s+`len*55`ms) — used for car `[F] DRIVE`, `HONK!`, `CRASH`, `BAIL DAMAGE`.
 - `syncHudPositions()` — snap all HUD/boss/subtitle meshes each frame (car calls it to kill 50ms lag).
+- **Settings**: `FPS COUNTER` checkbox added (`132/190/248/306/364/422/472` layout to fit `512` canvas, `SETTINGS` now 4 checks).
 
 ### menu.js
 Boot loader + hub UI + MISSION COMPLETE overlay.
@@ -218,7 +230,7 @@ Boot loader + hub UI + MISSION COMPLETE overlay.
 ### input.js
 Mouse/wheel/key listeners.
 
-- `F` near 3.2m toggles car `tryEnterCar`/`exitCar` (driving blocks its own handling), `Space` while driving honks instead of braking/jumping; `C` prone blocked while driving; `G` grenade blocked while driving; `setFiring` blocked while driving (mousedown + laptop `KeyE`); **V** toggles radar; Digit5 = health box slot; **P** toggles pause, ESC opens it when unlocked.
+- `F` near 3.8m toggles tank `tryEnterTank`/`exitTank` (prefer tank over car) else `3.2m` car `tryEnterCar`/`exitCar` (driving blocks its own handling), `Space` while car honks instead of braking/jumping; `C` prone blocked while `anyDriving()`; `G` grenade blocked while `anyDriving()`; `setFiring` blocked while `anyDriving()` (mousedown + laptop `KeyE`); tank `mousedown` left → `tankShoot()` + turret yaw/pitch `mousemove` `*0.0022/*0.0016` clamped `±2.0/ -0.32..+0.28`; **V** toggles radar; Digit5 = health box slot; **P** toggles pause, ESC opens it when unlocked.
 - Mouse-pull eats accumulated recoil first; straf sensitivity cranked when strafLock on; laptop mode remaps Q=RMB, E=LMB; Y toggles bullet traces.
 - Clicks gated in hub/won/dead and when the pause board is up.
 
@@ -293,7 +305,7 @@ Clock + frame orchestration: `updatePlayer` (support-based floor, STEP_UP auto-c
 
 - `pvp: true` → numbered team spawns (see below), no AI (the game skips every drone/ugv/turret/boss/tank/target/healthbox entity), playable from MULTIPLAYER only.
 - `rain: true` → camera-following `LineSegments` rain volume (2100 streaks, polar disc `R=65` + triangular `y`, per-drop `v`/`len`/`drift`, `LineBasicMaterial` `0xc9d7f0`/`0.38` fogged, night dim; `world.js` `setRain`/`updateRain` + `studio/core.js` preview; `applyMap`/`rebuildAll` migrate via `j.rain`; studio File toggle `rainToggle` in `state.js` `freshMap`).
-- `fog` 0–100 slider (`VIEW` card) — dense near 0 (`FogExp2 density 0.020`) to far 100 (`0.002`), default 50 (~0.011). Saved to map (`S.map.fog`) and to `localStorage gault_fogSlider`; studio `Hide fog` toggle (`gault_hidefog`) is studio-only preview (density 0 when on). Game `applyMap` calls `setFogSlider(j.fog)`.
+- `fog` 0–100 slider (`VIEW` card) — `18m→858m` (`r=18+v*8.4 → d=1.7/r`, was `85m→850m` `d=0.020 - v*0.00018`), default 50 (`438m`). Saved to map (`S.map.fog`) and to `localStorage gault_fogSlider`; `fogCullR2()` culls grass (game) / props/blocks/entities (studio) behind fog when `0` is really close; studio `Hide fog` toggle (`gault_hidefog`) is studio-only preview (density 0 when on, disables cull). Game `applyMap` calls `setFogSlider(j.fog)`.
 - `ground` overrides the base ground tile (default grass.webp) across the whole field; `unlit` uses MeshBasicMaterial so the tile shows true colors.
 - **Blocks** → meshes + colliders at load (`addBlock`); rotated boxes get enclosing-AABB colliders (known ceiling). `prim:plane` uses `polygonOffset` (`-1,-1`) + `DoubleSide` so a flush wall decal no longer z-fights its box face (migrates old maps without moving data; fix in `studio/core.js` `buildBlockMesh` + `src/world.js` `blockMaterial`).
 - `y:'drop'` seats a prop/tree on the terrain surface (`groundHeight(x,z) − lowest vertex`), not the old flat y=0; an explicit `y` sets an absolute base height.
@@ -357,7 +369,7 @@ Dep graph is acyclic: `state ← core ← tools ← paint ← ui ← main`.
 |---|---|---|
 | 0 | Grass | billboard-vegetation brush: upload a transparent sprite, paint points, each spawns 2-6 crossed billboard pairs; all blades merge into ONE geometry + material (`map.grass`). Incremental growable buffers while painting; `fill unpainted` (radius-aware) + plan `place all` run on a Web Worker with a busy overlay |
 | 1 | Select | pick/drag/nudge/arrows/[ ]/-+/V/X · multi: `Shift/Ctrl+click` toggles box multi (`S.multiSel`, gold `BoxHelper`s), `bulkBoxEdit` color/texture in Selection `bulkBoxRow`, drag/nudge/rotate/scale/duplicate/delete on all |
-| 2 | Place | **floating `fwin`** `placeFwin` (330,40 300px draggable, × close): props/blocks/entities with ghost preview + grid snap (G: 0.5/1/2m), scale/rotY; entity now includes `car (C)` |
+| 2 | Place | **floating `fwin`** `placeFwin` (330,40 300px draggable, × close): **text-only chips + searchable 2-col grids** (no dropdowns, wheel `stopPropagation` so scroll doesn't zoom): `kind` chips `PROP/BLOCK/ENTITY`, `model` grid 2-col + filter `modelSearch`, `prim` chips `BOX/PLANE/CYL`, `entity` grid 2-col + filter `entSearch` (text-only, pvp/player hidden per `pvpToggle`), `team` chips `1/2`; ghost preview + grid snap (G: 0.5/1/2m), scale/rotY; entity now includes `tank (T, tankv2 1.5)` + `car (C)` |
 | 3 | Terrain | **two floating `fwin`** `terrainBrushFwin` (330,40) and `terrainMountainsFwin` (330,190) + **extreme** checkbox (radius 30→120, strength 17→80) — raise/lower/smooth/flatten brush with radius+strength (writes heights live) |
 | 4 | UGV route | click waypoints |
 | 5 | Paint | brush ground textures onto a transparent overlay (`groundTex`) |
@@ -365,9 +377,9 @@ Dep graph is acyclic: `state ← core ← tools ← paint ← ui ← main`.
 | 8 | Greenery | forest brush: pick trees/bushes/both, radius, size ranges; left-click stamps random groupings — `greenery.js` now syncs `sel.value=G.mode`, integer counts (`floor`), `HALF`-aware bounds (`abs(x)>HALF-0.5`) for 600m maps, `tries 30→50`, distinct `set count` vs `no room` status |
 | 9 | Sector | draw areas like walls but each closes into a **filled** cyan region (see Sectors above) |
 
-- Entity types: player, drone, ugv, turret, tank, target, extract, **boss** (TAT-10, marker `B`), **healthbox** (HPB, marker `H`), **car** (buggy, marker `C`), **pvp spawn** (only when pvp-flagged — team select, numbered team-colored disk `1`/`2`).
+- Entity types: player, drone, ugv, turret, **tank (driveable tankv2, 400 HP, absorbs damage, marker `T` cyan `8fb8ff`)**, target, extract, **boss** (TAT-10, marker `B`), **healthbox** (HPB, marker `H`), **car** (buggy, marker `C`), **pvp spawn** (only when pvp-flagged — team select).
 - **Match workspace** (`pvpFwin`, launcher **Match**): the `pvpToggle` checkbox sets `map.pvp`; ON hides the single-player spawn and reveals pvp spawn + team select. Export/▶ Play validate pvp maps (block unless there's a team-1 and a team-2 spawn).
-- **View workspace** (`viewFwin`, launcher **View**): `Hide fog (studio only)` (`gault_hidefog`, `localStorage`, studio preview density 0) + `fog distance` slider 0–100 (`gault_fogSlider` + `S.map.fog`, persists to map, `0 dense 0.020 → 100 far 0.002`, game reads via `setFogSlider`). Was `FogExp2 0.010` fixed; studio core `sliderToDensity` + `rebuildAll` syncs checkbox/slider from map.
+- **View workspace** (`viewFwin`, launcher **View**): `Hide fog (studio only)` (`gault_hidefog`, `localStorage`, studio preview density 0) + `fog distance` slider 0–100 (`gault_fogSlider` + `S.map.fog`, `18m→858m` via `r=18+v*8.4 → d=1.7/r`, was `85m→850m` `d=0.020 - v*0.00018`). `fogCullR2()` hides `prop/block/mark` behind fog (`studio/main.js` tick) to save draw; studio core `sliderToDensity` + `rebuildAll` syncs checkbox/slider from map.
 - **Ground workspace** (`groundFwin`, launcher **Ground**): sets `map.ground` (base-tile texture + tile size) to replace default grass.
 - **File workspace** (`mapFwin`, launcher **File**, open at boot): map name/size, night/midnight/rain (`rainToggle` → `map.rain` + `setRain` preview), New/Play/Save/Load slot, status line.
 - Paint tool: per-layer tile-size (m) control, **opacity** slider that does not stack, "messy blob" checkbox for a randomized 7-point brush shape, erase-to-grass.
@@ -390,6 +402,7 @@ Dep graph is acyclic: `state ← core ← tools ← paint ← ui ← main`.
 - `ui` ⇄ `pvp` avoided via the `S.pvpQuit` bridge; `pvp` → `ui` (boardShow/boardHide/showSubtitle/requestGameLock) is one-way
 - `world` ⇄ `car` (`setCarMapReady` ↔ `groundHeight`/`MAP_SPAWNS`/`resolveCollisions`/`showSubtitle`), `car` → `ugv` (`damageUgv`/`damagePlayer`/`heardShot`/`ugvList`), `car` → `weapons` (`setFiring`) — all runtime-only
 - `car` → `ui` (`showSubtitle`/`syncHudPositions`) one-way
+- `world` ⇄ `tank` (`setTankMapReady` ↔ `groundHeight`/`MAP_SPAWNS`/`resolveCollisions`), `tank` → `ugv` (`damagePlayer` via `window.__gaultDamageTank` 400 HP, absorbs damage while `S.tankDriving`), `tank` → `grenades` (`explodeAt` 40), `tank` → `ui`/`audio` (`showSubtitle`/`actx` loop) — runtime-only
 
 ## Collisions — 3D now
 - Colliders carry Y extents: `box {minX,maxX,minY,maxY,minZ,maxZ}`, `cyl {x,z,r,y0,y1}`, `seg {x1,z1,x2,z2,r,y0,y1}` (invisible walls).
@@ -397,7 +410,7 @@ Dep graph is acyclic: `state ← core ← tools ← paint ← ui ← main`.
   - skips colliders whose top ≤ footY + `STEP_UP`(0.55) → low walls are stepped onto;
   - skips colliders starting ≥ headY → walk-under bridges/overhangs;
   - `seg` colliders block but never support.
-  - **The UGV passes radius 1.35 + `segsAlwaysBlock=true`**: pushed out of every collider, and invisible walls are always full barriers for it. **The buggy passes radius 1.55**.
+  - **The UGV passes radius 1.35 + `segsAlwaysBlock=true`**: pushed out of every collider, and invisible walls are always full barriers for it. **The buggy passes radius 1.55**, **the tank `1.9`**.
 - `supportHeight(x,z,fromY)`: terrain + any collider top within step-up → the floor you stand on (player gravity and grenade bounces both use it); `seg` walls skipped.
 - `pointInCollider(x,y,z)` is Y-aware (grenades sail over low walls); `seg` uses distance to the line segment.
 - UGV nav grid only marks cells blocked when the collider's span intersects `[terrain+0.4, terrain+2]` at that cell — **except `seg` walls, which block at any terrain height**; UGV 3D LOS adds `segHitsSegWall`.
@@ -426,7 +439,7 @@ Dep graph is acyclic: `state ← core ← tools ← paint ← ui ← main`.
 - **Bullets** emit exactly from the flash sprite (true barrel). The muzzle sits ~3.6m ahead of the eye; if it lands inside geometry it retries once from the eye. **Y toggles persistent red traces** (debug).
 - **Recoil split**: hip → camera 100%. Straf → camera 30% + gun 70% (total matches hip fire); shake stays on the gun.
 - **Drone is shootable**: HP 25, per-pellet `damageDrone`, respawns 12s later.
-- **No shooting while driving** — `input.js` `mousedown`/`KeyE` blocked when `isDriving()`, `car.js` `enter()` calls `setFiring(false)`, `main.js` hides `gunScene`.
+- **No shooting while driving car** — `input.js` `mousedown`/`KeyE` blocked when `anyDriving()` (car), `car.js` `enter()` calls `setFiring(false)`, `main.js` hides `gunScene`; **tank can shoot** `LMB` → `tankShoot()` `1.4s` `explodeAt 40` via turret pitch/yaw dir, `S.tankDriving` absorbs `damagePlayer` → `damageTank 400 HP`.
 - **Respawn economy**: CC earned lands in a per-map pool `S.mapCC` (not the vault), shown in the CC HUD; banks to the vault only on mission complete (`bankMapCc()`). Dying costs 100 CC from the pool (RESPAWN greyed out when it can't cover it). On respawn enemies reset vision certainty to **40%** (`lowerCert()`).
 
 ## Online multiplayer server (`~/Code/UM-server/`)

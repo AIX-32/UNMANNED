@@ -7,7 +7,7 @@ export const S = {
   euler: new THREE.Euler(0, 0, 0, 'YXZ'),
   isLocked: false,
   everLocked: false,
-  settings: { strafLock: false, laptop: false, aimAssist: 1.12 },
+  settings: { strafLock: false, laptop: false, aimAssist: 1.12, brain: false, showFps: false },
 
 
   straf: false,
@@ -74,6 +74,7 @@ export const S = {
   worldReady: false,
   pendingLoads: 0,
   carDriving: false,
+  tankDriving: false,
 };
 
 window.__gaultS = S;

@@ -9,6 +9,7 @@ import { setTurretMapReady } from './turret.js';
 import { setDroneMapReady } from './drone.js';
 import { setBossMapReady } from './boss.js';
 import { setCarMapReady } from './car.js';
+import { setTankMapReady } from './tank.js';
 import { setRcMapReady } from './rc.js';
 import { setFogSlider } from './core.js';
 const ambient = new THREE.AmbientLight(0x403030, 0.5);
@@ -445,11 +446,12 @@ function bakeTrees() {
         im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
         im.castShadow = true;
         im.receiveShadow = true;
-        im.frustumCulled = false;
+        im.frustumCulled = false; // ponytail: true pops clusters — InstancedMesh bounds is single-tree, not chunk
         mapGroup.add(im);
         insts.push({ im: im, local: o.matrixWorld.clone() });
       }
     });
+    const origs = [];
     for (let ii = 0; ii < idxs.length; ii++) {
       const i = idxs[ii];
       const t = treeList[i];
@@ -457,6 +459,7 @@ function bakeTrees() {
       quat.setFromEuler(eul.set(0, THREE.MathUtils.degToRad(t.rotYdeg), 0));
       scl.setScalar(t.scale);
       mtx.compose(new THREE.Vector3(t.x, baseY, t.z), quat, scl);
+      origs.push(mtx.clone());
       for (let k = 0; k < insts.length; k++) {
         inst.multiplyMatrices(mtx, insts[k].local);
         insts[k].im.setMatrixAt(ii, inst);
@@ -470,7 +473,7 @@ function bakeTrees() {
       }
     }
     insts.forEach(function(t) { t.im.instanceMatrix.needsUpdate = true; if (t.im.geometry) t.im.geometry.computeBoundingSphere(); });
-    treeChunks.push({ insts: insts, idxs: idxs });
+    treeChunks.push({ insts: insts, idxs: idxs, origs: origs });
   });
   treeCount = n;
   buildUgvGrid();
@@ -512,22 +515,24 @@ function bakeBushes() {
       if (o.isMesh) {
         const im = new THREE.InstancedMesh(o.geometry, o.material, idxs.length);
         im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-        im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false;
+        im.castShadow = false; im.receiveShadow = true; im.frustumCulled = false; // ponytail: true pops — same bounds bug
         mapGroup.add(im);
         insts.push({ im: im, local: o.matrixWorld.clone() });
       }
     });
+    const origs = [];
     for (let ii = 0; ii < idxs.length; ii++) {
       const i = idxs[ii]; const t = bushList[i];
       const baseY = t.y === 'drop' ? groundHeight(t.x, t.z) - bushBox.min.y * t.scale : (t.y || 0) - bushBox.min.y * t.scale;
       quat.setFromEuler(eul.set(0, THREE.MathUtils.degToRad(t.rotYdeg), 0)); scl.setScalar(t.scale);
       mtx.compose(new THREE.Vector3(t.x, baseY, t.z), quat, scl);
+      origs.push(mtx.clone());
       for (let k = 0; k < insts.length; k++) { inst.multiplyMatrices(mtx, insts[k].local); insts[k].im.setMatrixAt(ii, inst); }
       if (t.coll) { t.coll.x = t.x; t.coll.z = t.z; t.coll.r = 0.8 * t.scale; t.coll.y0 = baseY; t.coll.y1 = baseY + 0.8 * t.scale; }
       else if (t.solid !== false) { t.coll = { type: 'cyl', x: t.x, z: t.z, r: 0.8 * t.scale, y0: baseY, y1: baseY + 0.8 * t.scale }; pushCollider(t.coll); }
     }
     insts.forEach(function(t){ t.im.instanceMatrix.needsUpdate = true; if (t.im.geometry) t.im.geometry.computeBoundingSphere(); });
-    bushChunks.push({ insts: insts });
+    bushChunks.push({ insts: insts, idxs: idxs, origs: origs });
   });
   bushCount = n; buildUgvGrid();
 }
@@ -566,40 +571,6 @@ function placeTarget(x, z) {
     g.add(t);
   });
 }
-
-let tankModel = null;
-let turretModel = null;
-let tankEntityPos = null;
-function attachTurret() {
-  if (!tankModel || !turretModel) return;
-
-  turretModel.position.set(0, 0.922, -0.314);
-  turretModel.scale.setScalar(1.216);
-  tankModel.add(turretModel);
-}
-function placeTank(x, z, rotYdeg) {
-  tankEntityPos = [x, z, rotYdeg || 0];
-  tryBuildTank();
-}
-function tryBuildTank() {
-  if (!tankEntityPos || !protoCache['tank.gltf']) return;
-  const px = tankEntityPos[0], pz = tankEntityPos[1], pr = tankEntityPos[2];
-  tankModel = protoCache['tank.gltf'].clone();
-  tankModel.scale.setScalar(2.55);
-  tankModel.position.set(px, 0, pz);
-  tankModel.rotation.y = THREE.MathUtils.degToRad(pr);
-
-  const bb = new THREE.Box3().setFromObject(tankModel);
-  tankModel.position.y -= bb.min.y;
-  mapGroup.add(tankModel);
-  attachTurret();
-  tankModel.updateMatrixWorld(true);
-  addBoxCollider(new THREE.Box3().setFromObject(tankModel));
-  buildUgvGrid();
-}
-loadProto('tank.gltf', tryBuildTank);
-loadProto('tankhead.gltf', function(s) { turretModel = s; attachTurret(); });
-
 
 const SUN_DIST = 130, SUN_SCALE = 12;
 let sunMesh = null;
@@ -711,9 +682,12 @@ export function addWall(wall) {
 let grassChunks = [];
 let grassUnlit = 0;
 const GRASS_CHUNK = 64;
+// ponytail: spatial hash for inGrass (was O(N) 8k scan per frame)
+let grassGrid = null;
+let grassGridR = 0;
 function clearGrass() {
   grassChunks.forEach(function(c) { scene.remove(c.mesh); c.mesh.geometry.dispose(); c.mesh.material.dispose(); });
-  grassChunks = [];
+  grassChunks = []; grassGrid = null;
 }
 function buildGrass() {
   clearGrass();
@@ -746,6 +720,13 @@ function buildGrass() {
     baseMat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5 });
     if (grassUnlit > 0) { baseMat.emissive = new THREE.Color(0xffffff); baseMat.emissiveMap = tex; baseMat.emissiveIntensity = grassUnlit; baseMat.color.setScalar(1 - grassUnlit); }
   }
+  // ponytail: fine grid for O(1) inGrass (was O(N) 8k scan → 64-chunk still 3k checks)
+  grassGrid = new Map(); grassGridR = (g.radius || 0.6) + (g.size || 0.7) * 0.4;
+  const GRASS_Q = 16;
+  g.pts.forEach(function(pt){
+    const k = Math.floor((pt[0]+1000)/GRASS_Q)+','+Math.floor((pt[1]+1000)/GRASS_Q);
+    let a = grassGrid.get(k); if(!a){ a=[]; grassGrid.set(k,a); } a.push(pt);
+  });
   const entries = Array.from(byChunk.entries());
   const async = g.pts.length > 4000;
   let ei = 0;
@@ -791,10 +772,10 @@ function buildGrass() {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.setIndex(indices);
-    geo.computeVertexNormals();
-    const gnorm = geo.attributes.normal;
-    for (let i = 0; i < gnorm.count; i++) gnorm.setXYZ(i, 0, 1, 0);
-    gnorm.needsUpdate = true;
+    // ponytail: was computeVertexNormals then overwrite with (0,1,0)
+    const nrm = new Float32Array(positions.length);
+    for (let i = 0; i < nrm.length; i += 3) { nrm[i] = 0; nrm[i + 1] = 1; nrm[i + 2] = 0; }
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
     geo.computeBoundingSphere();
     const mat = baseMat.clone();
     const mesh = new THREE.Mesh(geo, mat);
@@ -819,17 +800,23 @@ function buildGrass() {
   if (async) nextGrassChunk();
   else entries.forEach(function(e){ buildOne(e[1], e[0]); });
 }
+function fogCullR2(){
+  const d = scene.fog ? scene.fog.density : 0;
+  if (!d || d < 0.0005) return Infinity;
+  const r = 2.0 / d * 0.85; // ponytail: visible ~ where fog ~98% opaque
+  return r * r;
+}
 export function updateGrassCull() {
   const cx = camera.position.x, cz = camera.position.z;
+  const fogR2 = fogCullR2();
+  const grassLim = Math.min(19600, fogR2);
   for (let i = 0; i < grassChunks.length; i++) {
     const c = grassChunks[i];
     const d2 = (c.x - cx)*(c.x - cx) + (c.z - cz)*(c.z - cz);
-    c.mesh.visible = d2 < 19600;
+    c.mesh.visible = d2 < grassLim;
   }
-
   for (let i = 0; i < treeChunks.length; i++) {
     const ch = treeChunks[i];
-
     const t = treeList[ch.idxs ? ch.idxs[0] : 0];
     if (!t) continue;
     const d2 = (t.x - cx)*(t.x - cx) + (t.z - cz)*(t.z - cz);
@@ -921,18 +908,23 @@ export function updateRain(dt){
 
 
 export function inGrass(x, z) {
-  const g = MAPJSON && MAPJSON.grass;
-  if (!g || !g.pts || !g.pts.length) return false;
-  const r = (g.radius || 0.6) + (g.size || 0.7) * 0.4;
-  for (let i = 0; i < g.pts.length; i++) {
-    const dx = x - g.pts[i][0], dz = z - g.pts[i][1];
-    if (dx * dx + dz * dz <= r * r) return true;
+  if (!grassGrid) return false;
+  const Q = 16; // ponytail: matches fine grid above
+  const cx = Math.floor((x + 1000) / Q), cz = Math.floor((z + 1000) / Q);
+  const r2 = grassGridR * grassGridR;
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+    const a = grassGrid.get((cx + dx) + ',' + (cz + dz));
+    if (!a) continue;
+    for (let i = 0; i < a.length; i++) {
+      const dx2 = x - a[i][0], dz2 = z - a[i][1];
+      if (dx2 * dx2 + dz2 * dz2 <= r2) return true;
+    }
   }
   return false;
 }
 
 
-export const MAP_SPAWNS = { player: null, ugvs: [], drones: [], turrets: [], bosses: [], ugvRoute: [], extract: null, sectors: [], healthBoxes: [], radios: [], pvp: [], cars: [] };
+export const MAP_SPAWNS = { player: null, ugvs: [], drones: [], turrets: [], bosses: [], ugvRoute: [], extract: null, sectors: [], healthBoxes: [], radios: [], pvp: [], cars: [], tanks: [] };
 export const EXTRACT_R = 6;
 export function atExtract() {
   const e = MAP_SPAWNS.extract;
@@ -1048,7 +1040,6 @@ function resetWorld() {
 
   for (let i = 0; i < grassChunks.length; i++) { scene.remove(grassChunks[i].mesh); grassChunks[i].mesh.geometry.dispose(); grassChunks[i].mesh.material.dispose(); }
   grassChunks = [];
-  tankModel = null; turretModel = null; tankEntityPos = null;
   mapGroup = new THREE.Group();
   scene.add(mapGroup);
 }
@@ -1092,8 +1083,7 @@ export function applyMap(j) {
       return;
     }
     if (S.pvp) return;
-    if (e.kind === 'tank') placeTank(e.pos[0], e.pos[1], e.rotY);
-    else if (e.kind === 'target') placeTarget(e.pos[0], e.pos[1]);
+    if (e.kind === 'target') placeTarget(e.pos[0], e.pos[1]);
     else if (e.kind === 'drone') MAP_SPAWNS.drones.push([e.pos[0], e.pos[1]]);
     else if (e.kind === 'ugv') MAP_SPAWNS.ugvs.push({ x: e.pos[0], z: e.pos[1], sector: e.sector });
     else if (e.kind === 'turret') MAP_SPAWNS.turrets.push([e.pos[0], e.pos[1], e.rotY || 0]);
@@ -1102,6 +1092,7 @@ export function applyMap(j) {
     else if (e.kind === 'healthbox') MAP_SPAWNS.healthBoxes.push([e.pos[0], e.pos[1]]);
     else if (e.kind === 'radio') MAP_SPAWNS.radios.push([e.pos[0], e.pos[1]]);
     else if (e.kind === 'car') MAP_SPAWNS.cars.push({ x: e.pos[0], z: e.pos[1], rotY: e.rotY || 0 });
+    else if (e.kind === 'tank') MAP_SPAWNS.tanks.push({ x: e.pos[0], z: e.pos[1], rotY: e.rotY || 0 });
     else if (e.kind === 'player') {
       MAP_SPAWNS.player = [e.pos[0], e.pos[1], e.rotY || 0];
       camera.position.x = e.pos[0];
@@ -1120,6 +1111,7 @@ export function applyMap(j) {
   setDroneMapReady();
   setBossMapReady();
   setCarMapReady();
+  setTankMapReady();
   setRcMapReady();
   if (S.resetMortar) S.resetMortar();
   syncHub();
@@ -1137,7 +1129,6 @@ function buildDefaultLayout() {
     placeProp('tree.gltf', pos, Math.random() * 360, 0.95 * (0.85 + Math.random() * 0.3));
   });
   placeTarget(12, -14);
-  placeTank(-6, -4, 0);
   setUgvMapReady();
   setTurretMapReady();
   setDroneMapReady();
@@ -1162,14 +1153,4 @@ function loadDefaultMap() {
     .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(applyMap)
     .catch(function(err) { console.error('default map load failed, using hardcoded field', err); buildDefaultLayout(); });
-}
-
-
-export function updateTurret(dt) {
-  if (!turretModel || !tankModel) return;
-  const local = tankModel.worldToLocal(camera.position.clone());
-  const targetYaw = Math.atan2(-local.x, -local.z);
-  let d = targetYaw - turretModel.rotation.y;
-  d = Math.atan2(Math.sin(d), Math.cos(d));
-  turretModel.rotation.y += d * Math.min(1, dt * 1.5);
 }

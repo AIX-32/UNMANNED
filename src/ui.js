@@ -517,6 +517,8 @@ let menuParked = false;
 const menuBtns = [];
 
 S.settings.laptop = idb.get('gault_laptop') === '1';
+S.settings.brain = idb.get('gault_brainassist') === '1';
+S.settings.showFps = idb.get('gault_showfps') === '1';
 
 const aa = parseFloat(idb.get('gault_aimassist'));
 S.settings.aimAssist = isFinite(aa) ? aa : 1.12;
@@ -586,11 +588,13 @@ function drawMenu() {
     ctx.font = TITLE_FONT;
     ctx.textBaseline = 'middle';
     ctx.fillText('SETTINGS', W / 2, 90);
-    menuBtns.push(menuCheck(280, 140, 460, 54, 'ALWAYS-ON STRAF', S.settings.strafLock));
-    menuBtns.push(menuCheck(280, 206, 460, 54, 'LAPTOP MODE', S.settings.laptop));
-    menuStepper(280, 272, 460, 54, 'AIM ASSIST', S.settings.aimAssist.toFixed(2));
-    menuBtns.push(menuBtn(280, 338, 460, 46, 'RESET AIM ASSIST', 'btn'));
-    menuBtns.push(menuBtn(280, 396, 460, 40, 'BACK', 'btn'));
+    menuBtns.push(menuCheck(280, 132, 460, 54, 'ALWAYS-ON STRAF', S.settings.strafLock));
+    menuBtns.push(menuCheck(280, 190, 460, 54, 'LAPTOP MODE', S.settings.laptop));
+    menuBtns.push(menuCheck(280, 248, 460, 54, 'BRAIN ASSIST', S.settings.brain));
+    menuBtns.push(menuCheck(280, 306, 460, 54, 'FPS COUNTER', S.settings.showFps));
+    menuStepper(280, 364, 460, 54, 'AIM ASSIST', S.settings.aimAssist.toFixed(2));
+    menuBtns.push(menuBtn(280, 422, 460, 46, 'RESET AIM ASSIST', 'btn'));
+    menuBtns.push(menuBtn(280, 472, 460, 40, 'BACK', 'btn'));
   }
   menuTex.needsUpdate = true;
 }
@@ -678,6 +682,14 @@ function fireMenuButton(b) {
     } else if (b.label === 'LAPTOP MODE') {
       S.settings.laptop = !S.settings.laptop;
       idb.set('gault_laptop', S.settings.laptop ? '1' : '0');
+    } else if (b.label === 'BRAIN ASSIST') {
+      S.settings.brain = !S.settings.brain;
+      idb.set('gault_brainassist', S.settings.brain ? '1' : '0');
+      S.aimErrT.set(0, 0);
+    } else if (b.label === 'FPS COUNTER') {
+      S.settings.showFps = !S.settings.showFps;
+      idb.set('gault_showfps', S.settings.showFps ? '1' : '0');
+      _updateInfo();
     }
     drawMenu();
   } else if (b.label === 'PHOTO MODE') {
@@ -855,3 +867,24 @@ if (hudEdit) {
   }
   hudRefresh();
 }
+
+// ponytail: fps counter beside version in left bottom corner
+const _infoEl = document.getElementById('info');
+const _infoBase = _infoEl ? _infoEl.textContent.trim() : 'UNMANNED v0.9.7';
+let _fps = 0, _fpsFrames = 0, _fpsLast = performance.now();
+function _updateInfo() {
+  if (!_infoEl) return;
+  _infoEl.textContent = S.settings.showFps ? _infoBase + ' · ' + _fps + ' FPS' : _infoBase;
+}
+(function _fpsLoop() {
+  requestAnimationFrame(_fpsLoop);
+  _fpsFrames++;
+  const now = performance.now();
+  const dt = now - _fpsLast;
+  if (dt >= 400) {
+    _fps = Math.round(_fpsFrames * 1000 / dt);
+    _fpsFrames = 0; _fpsLast = now;
+    _updateInfo();
+  }
+})();
+_updateInfo();

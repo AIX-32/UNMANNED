@@ -80,9 +80,9 @@ export function makeGhost() {
 
 
     const et = $('entSel').value;
-    const efile = et === 'tank' ? 'tank.gltf' : et === 'target' ? 'target.gltf' : et === 'turret' ? 'turret.gltf' : et === 'boss' ? 'TAT-10.gltf' : et === 'healthbox' ? 'HPB.gltf' : et === 'radio' ? 'radio.gltf' : null;
+    const efile = et === 'target' ? 'target.gltf' : et === 'turret' ? 'turret.gltf' : et === 'boss' ? 'TAT-10.gltf' : et === 'healthbox' ? 'HPB.gltf' : et === 'tank' ? 'tankv2.gltf' : et === 'radio' ? 'radio.gltf' : null;
     if (efile) {
-      const esc = et === 'tank' ? 2.55 : et === 'turret' ? 1.6 : et === 'boss' ? 1 : et === 'healthbox' ? 1.3 : et === 'radio' ? 1 : 1.5;
+      const esc = et === 'turret' ? 1.6 : et === 'boss' ? 1 : et === 'healthbox' ? 1.3 : et === 'tank' ? 1.5 : et === 'radio' ? 1 : 1.5;
       loadProto(efile, function(proto) {
         S.ghostLoading = false;
         if (S.tool !== 'place' || S.ghostKind !== k) return;

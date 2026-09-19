@@ -5,7 +5,7 @@ import * as idb from '../idb.js';
 import { $, status, canvas, renderer, scene, camera, orbit, updateCamera,
          rebuildAll, dump, refreshOutlines, brushRing, propGroup, blockGroup, markGroup,
          raycaster, mouseNDC, DEFAULT_SCALE, whenAsyncIdle, updateRain, sampleHeight,
-         groundDirty, groundTexCanvas, groundTexCtx, saveAutosave } from './core.js';
+         groundDirty, groundTexCanvas, groundTexCtx, saveAutosave, fogCullR2 } from './core.js';
 import { onMouseDown, makeGhost, clearGhost, aimHit, snapVal, readBlockDef, rebuildOne,
          applyBrush, endBrushStroke, finishWall, finishSector } from './tools.js';
 import './gizmo.js';
@@ -287,6 +287,23 @@ function tick(now) {
     }
   }
 
+  // ponytail: when fog is thick, hide stuff behind it → less draw
+  const fogR2 = fogCullR2();
+  if (fogR2 !== Infinity) {
+    const cx = orbit.pos.x, cz = orbit.pos.z;
+    const hideFar = function(g){
+      for (let i = 0; i < g.children.length; i++) {
+        const c = g.children[i], p = c.position;
+        const d2 = (p.x - cx)*(p.x - cx) + (p.z - cz)*(p.z - cz);
+        c.visible = d2 < fogR2;
+      }
+    };
+    hideFar(propGroup); hideFar(blockGroup); hideFar(markGroup);
+  } else {
+    // ensure visible when fog far/hidden
+    const showAll = function(g){ for(let i=0;i<g.children.length;i++) g.children[i].visible = true; };
+    showAll(propGroup); showAll(blockGroup); showAll(markGroup);
+  }
   renderer.render(scene, camera);
 }
 requestAnimationFrame(tick);

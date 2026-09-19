@@ -561,6 +561,32 @@ function barrelDir(out) {
   return out;
 }
 
+const _brainV = new THREE.Vector3();
+const _brainQ = new THREE.Quaternion();
+const BRAIN_RANGE = 60;
+export function brainTargetPos(out) {
+  if (!(S.settings.brain && S.straf) || S.dead || S.won || S.hub || S.story) return false;
+  const eye = camera.position;
+  const inv = _brainQ.copy(camera.quaternion).invert();
+  let best2 = BRAIN_RANGE * BRAIN_RANGE, took = false;
+  function scan(x, y, z) {
+    const dx = x - eye.x, dy = y - eye.y, dz = z - eye.z;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > best2) return;
+    _brainV.set(dx, dy, dz).applyQuaternion(inv);
+    if (_brainV.z > -1.2) return;
+    best2 = d2; out.set(x, y, z); took = true;
+  }
+  ugvList().forEach(function(e) { if (e.group) { const p = e.group.getWorldPosition(_brainV); scan(p.x, p.y + 0.5, p.z); } });
+  turretList().forEach(function(e) { if (e.group) { const p = e.group.getWorldPosition(_brainV); scan(p.x, p.y + 0.5, p.z); } });
+  bossList().forEach(function(e) { if (e.group) { const p = e.group.getWorldPosition(_brainV); scan(p.x, p.y + 1, p.z); } });
+  const ds = droneState();
+  if (ds && ds.group) { const p = ds.group.getWorldPosition(_brainV); scan(p.x, p.y, p.z); }
+  const rg = remoteGroup();
+  if (rg) { const p = rg.getWorldPosition(_brainV); scan(p.x, p.y + 0.9, p.z); }
+  return took;
+}
+
 
 
 export function updateLandingMarker() {
@@ -625,12 +651,18 @@ function shoot() {
 
   for (let p = 0; p < w.pellets; p++) {
 
-    const dir = barrelDir(new THREE.Vector3());
-    if (w.spread) {
-      dir.x += (Math.random() - 0.5) * w.spread;
-      dir.y += (Math.random() - 0.5) * w.spread;
-      dir.z += (Math.random() - 0.5) * w.spread;
-      dir.normalize();
+    let dir;
+    const brainO = _brainV.set(0, 0, 0);
+    if (brainTargetPos(brainO)) {
+      dir = brainO.sub(muzzle).normalize();
+    } else {
+      dir = barrelDir(new THREE.Vector3());
+      if (w.spread) {
+        dir.x += (Math.random() - 0.5) * w.spread;
+        dir.y += (Math.random() - 0.5) * w.spread;
+        dir.z += (Math.random() - 0.5) * w.spread;
+        dir.normalize();
+      }
     }
     let hits = castShoot(muzzle, dir, w.drop);
 

@@ -2,7 +2,11 @@
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1512);
 scene.fog = new THREE.FogExp2(0x1a1512, 0.012);
-function sliderToDensity(v){ return 0.020 - (Math.max(0,Math.min(100,parseFloat(v)||0))*0.00018); }
+function sliderToDensity(v){
+  v=Math.max(0,Math.min(100,parseFloat(v)||0));
+  const r=18+v*8.4; // ponytail: slider now = visible distance 18m→858m (was density linear 85m→850m, 0 never felt close)
+  return 1.7/r;
+}
 let fogSlider = 50;
 export function setFogSlider(v){ fogSlider = Math.max(0,Math.min(100,parseFloat(v)||0)); try{ localStorage.setItem('gault_fogSlider', String(fogSlider)); }catch(e){} if (scene.fog) scene.fog.density = sliderToDensity(fogSlider); }
 export function getFogSlider(){ return fogSlider; }

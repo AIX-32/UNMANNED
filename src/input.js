@@ -7,12 +7,20 @@ import { toggleRadar } from './radar.js';
 import { flashDbg, menuActive, inSettingsView, requestGameLock, openPause, resumeGame } from './ui.js';
 import { bootActive, cheatUnlockAll } from './menu.js';
 import { tryEnterCar, isDriving, exitCar } from './car.js';
+import { tryEnterTank, isTankDriving, exitTank, tankShoot } from './tank.js';
 import { rcActive, rcArmed, armRc, unarm, deployRc, detonateRc } from './rc.js';
 import { isMortarActive } from './mortar.js';
 
 const IS_HUDEDIT = new URLSearchParams(location.search).get('hudedit') !== null;
+function anyDriving(){ return isDriving() || isTankDriving(); }
 document.addEventListener('mousedown', function(e) {
-  if (S.photo || S.dead || S.won || S.hub || S.story || S.pvpLobby || isDriving()) return;
+  if (S.won || S.hub || S.story) return;
+  if (isTankDriving() && S.isLocked){
+    if(e.button===0) tankShoot();
+    if(e.button===2) return;
+    return;
+  }
+  if (S.photo || S.dead || S.won || S.hub || S.story || S.pvpLobby || anyDriving()) return;
   if (rcActive()) return;
   if (rcArmed()) { deployRc(); return; }
   if (isMortarActive()) return;
@@ -48,6 +56,7 @@ document.addEventListener('click', function(e) {
 
 document.addEventListener('mousemove', function(e) {
   if (S.photo || !S.isLocked) return;
+  if (isTankDriving()) return;
   if (rcActive()) return;
 
 
@@ -64,8 +73,8 @@ document.addEventListener('mousemove', function(e) {
 
 
     const sens = S.settings.strafLock ? 0.007 : 0.0035;
-    S.aimErrT.x = THREE.MathUtils.clamp(S.aimErrT.x + e.movementX * sens, -S.AIM_RANGE_X, S.AIM_RANGE_X);
-    S.aimErrT.y = THREE.MathUtils.clamp(S.aimErrT.y + e.movementY * sens, -S.AIM_RANGE_Y, S.AIM_RANGE_Y);
+    S.aimErrT.x = THREE.MathUtils.clamp(S.aimErrT.x - e.movementX * sens, -S.AIM_RANGE_X, S.AIM_RANGE_X);
+    S.aimErrT.y = THREE.MathUtils.clamp(S.aimErrT.y - e.movementY * sens, -S.AIM_RANGE_Y, S.AIM_RANGE_Y);
     return;
   }
   S.euler.y -= e.movementX * sens;
@@ -73,8 +82,8 @@ document.addEventListener('mousemove', function(e) {
   S.lookDX += e.movementX;
   S.lookDY += e.movementY;
 
-  S.aimErrT.x = THREE.MathUtils.clamp(S.aimErrT.x + e.movementX * 0.0006, -S.DEADZONE, S.DEADZONE);
-  S.aimErrT.y = THREE.MathUtils.clamp(S.aimErrT.y + e.movementY * 0.0006, -S.DEADZONE, S.DEADZONE);
+  S.aimErrT.x = THREE.MathUtils.clamp(S.aimErrT.x - e.movementX * 0.0006, -S.DEADZONE, S.DEADZONE);
+  S.aimErrT.y = THREE.MathUtils.clamp(S.aimErrT.y - e.movementY * 0.0006, -S.DEADZONE, S.DEADZONE);
 });
 
 document.addEventListener('keydown', function(e) {
@@ -90,8 +99,8 @@ document.addEventListener('keydown', function(e) {
     if (e.code === 'Space' && !e.repeat) detonateRc();
     return;
   }
-  if (e.code === 'KeyF' && !e.repeat) { unarm(); if (isDriving()) exitCar(); else tryEnterCar(); }
-  if (e.code === 'KeyC' && !e.repeat && !isDriving()) {
+  if (e.code === 'KeyF' && !e.repeat) { unarm(); if (isTankDriving()) exitTank(); else if (isDriving()) exitCar(); else { if(!tryEnterTank()) tryEnterCar(); } }
+  if (e.code === 'KeyC' && !e.repeat && !anyDriving()) {
     if (isMortarActive()) return;
     S.prone = !S.prone;
   }
@@ -99,14 +108,14 @@ document.addEventListener('keydown', function(e) {
     if (isMortarActive()) return;
     tryBash();
   }
-  if (e.code === 'KeyG' && !e.repeat && !usingBox && !isDriving()) throwGrenade();  if (e.code === 'KeyR' && !e.repeat) {
+  if (e.code === 'KeyG' && !e.repeat && !usingBox && !anyDriving()) throwGrenade();  if (e.code === 'KeyR' && !e.repeat) {
     if (isMortarActive()) return;
     startReload();
   }
   if (e.code === 'KeyX' && !e.repeat) S.ads = !S.ads;
   if (e.code === 'KeyI' && !e.repeat) S.inspect = !S.inspect;
-  if (S.settings.laptop && e.code === 'KeyQ' && !e.repeat && !isDriving() && !rcArmed()) S.straf = true;
-  if (S.settings.laptop && e.code === 'KeyE' && !e.repeat && S.isLocked && !isDriving() && !rcArmed()) setFiring(true);
+  if (S.settings.laptop && e.code === 'KeyQ' && !e.repeat && !anyDriving() && !rcArmed()) S.straf = true;
+  if (S.settings.laptop && e.code === 'KeyE' && !e.repeat && S.isLocked && !anyDriving() && !rcArmed()) setFiring(true);
   if (e.code === 'KeyY' && !e.repeat) toggleTrace();
   if (e.code === 'KeyV' && !e.repeat) toggleRadar();
   if (e.code === 'KeyY' && !e.repeat && FLASH_DEBUG) {
