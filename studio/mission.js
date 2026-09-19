@@ -201,7 +201,7 @@ export function initMissionEditor(){
     b.onclick=function(){ const showing=fw.style.display!=='none'; fw.style.display=showing?'none':'block'; b.classList.toggle('on', !showing); };
     launchers.appendChild(b);
   }
-  document.getElementById('missionFwinClose').onclick=function(){ fw.style.display='none'; const b=document.getElementById('wsMission'); if(b) b.classList.remove('on'); };
+  document.getElementById('missionFwinClose').addEventListener('click',function(){ fw.style.display='none'; const b=document.getElementById('wsMission'); if(b) b.classList.remove('on'); });
   // enable
   document.getElementById('missionEnable').onchange=function(){
     pushUndo();

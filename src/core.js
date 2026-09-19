@@ -53,11 +53,12 @@ export const postMat = new THREE.ShaderMaterial({
   uniforms: {
     tDiffuse: { value: rt.texture }, uTime: { value: 0 }, uCA: { value: 0.02 }, uPix: { value: new THREE.Vector2(rt.width, rt.height) },
     uNoise: { value: 0.03 }, uVhs: { value: 0.0 },
-    uShock: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }
+    uShock: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+    uHeat: { value: 0 }, uHeatCol: { value: new THREE.Vector3(1.0, 0.4, 0.05) }
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: [
-    'varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uCA; uniform float uNoise; uniform float uVhs; uniform vec2 uPix; uniform vec4 uShock[4];',
+    'varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uCA; uniform float uNoise; uniform float uVhs; uniform vec2 uPix; uniform vec4 uShock[4]; uniform float uHeat; uniform vec3 uHeatCol;',
     'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }',
     'void main(){',
 
@@ -104,6 +105,11 @@ export const postMat = new THREE.ShaderMaterial({
     '  c.b -= vhsTrack * 0.08 * uVhs;',
 
     '  c += (fract(sin(dot(vUv * 400.0, vec2(12.9898,78.233)) + uTime * 60.0)) - 0.5) * uNoise;',
+
+    '  if (uHeat > 0.01) {',
+    '    c = mix(c, uHeatCol, uHeat * 0.35);',
+    '    c.r += 0.12 * uHeat; c.g += 0.03 * uHeat; c.b -= 0.10 * uHeat;',
+    '  }',
     '  gl_FragColor = vec4(c, 1.0);',
     '}'
   ].join('\n')

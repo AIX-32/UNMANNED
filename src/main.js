@@ -20,6 +20,8 @@ import { updateTanks, isTankDriving, exitTank, tankShoot, hideAim as hideTankAim
 import { updateRc, rcActive, rcHud } from './rc.js';
 import { updateMortar, isMortarActive, mortarBlocksMove, mortarHud } from './mortar.js';
 import { updateBonics, bonicsRaiseK, isBonicsZoomed, isBonicsActive } from './weapons.js';
+import { updateMelt } from './melt.js';
+import { updateTriggerSpots } from './trigger.js';
 import { updatePhoto } from './photo.js';
 import './signalling.js';
 import './input.js';
@@ -711,6 +713,8 @@ function playTick(dt, now) {
   perfMark('cars'); updateCars(dt, now); perfEnd('cars');
   perfMark('tanks'); updateTanks(dt, now); perfEnd('tanks');
   perfMark('rc'); updateRc(dt, now); perfEnd('rc');
+  perfMark('melt'); updateMelt(dt, now); perfEnd('melt');
+  perfMark('trigger'); updateTriggerSpots(); perfEnd('trigger');
   perfEnd('pvpCars');
 
 

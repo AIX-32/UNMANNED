@@ -53,6 +53,7 @@ addEventListener('mouseup', function() {
     }catch(e){}
   }
   finishDrag();
+  if (S.stepnateAim && window.__renderStepnate) try { window.__renderStepnate(); } catch (e) {}
 });
 addEventListener('wheel', function(e) {
 
@@ -261,6 +262,21 @@ function tick(now) {
     window.__gizmoHover();
   }
   if (S.dragging && (S.selection || (S.multiSel && S.multiSel.length))) {
+    const all = (S.multiSel && S.multiSel.length ? S.multiSel : [S.selection]);
+    const shift = S.keys && (S.keys.ShiftLeft || S.keys.ShiftRight);
+    if (shift) {
+      // Shift+drag: vertical move (mouse Y), props + blocks only — ents have no Y in the map format
+      const dyW = (S.mouseY - (S.dragStartMouseY != null ? S.dragStartMouseY : S.mouseY)) * -0.02;
+      all.forEach(function(sel) {
+        if (sel.kind !== 'prop' && sel.kind !== 'block') return;
+        const m = sel.kind === 'prop' ? propGroup.children[sel.i] : blockGroup.children[sel.i];
+        if (!m) return;
+        let st = null;
+        if (S.dragStarts) for (let k = 0; k < S.dragStarts.length; k++) if (S.dragStarts[k] && S.dragStarts[k].s.kind === sel.kind && S.dragStarts[k].s.i === sel.i) st = S.dragStarts[k];
+        if (st) m.position.y = snapVal(st.y + dyW);
+      });
+      refreshOutlines();
+    } else {
     raycaster.setFromCamera(mouseNDC.set((S.mouseX / innerWidth) * 2 - 1, -(S.mouseY / innerHeight) * 2 + 1), camera);
     const planeY = S.dragBaseY;
     const dir = raycaster.ray.direction, org = raycaster.ray.origin;
@@ -269,7 +285,6 @@ function tick(now) {
       if (t > 0) {
         const px = snapVal(org.x + dir.x * t), pz = snapVal(org.z + dir.z * t);
         const dx = px - S.dragOrigin.x, dz = pz - S.dragOrigin.z;
-        const all = (S.multiSel && S.multiSel.length ? S.multiSel : [S.selection]);
         all.forEach(function(sel) {
           let m = null;
           if (sel.kind === 'prop') m = propGroup.children[sel.i];
@@ -284,6 +299,7 @@ function tick(now) {
         });
         refreshOutlines();
       }
+    }
     }
   }
 

@@ -14,6 +14,7 @@ import { setStoryMode } from './story.js';
 import { setGreeneryMode } from './greenery.js';
 import { setGrassMode, finishGrassRegion, backspaceGrassRegion, grassRegionActive } from './grass.js';
 import { initMissionEditor, refreshMissionEditor } from './mission.js';
+import { initStepnate } from './stepnate.js';
 
 
 document.querySelectorAll('.modal').forEach(function(m) {
@@ -183,7 +184,7 @@ function syncPrimChips(){
   document.querySelectorAll('#primChips .prim-chip').forEach(function(c){ c.classList.toggle('on', c.dataset.v===v); });
 }
 const ENT_META={
-  player:['P','player spawn'], pvp:['⚔','pvp spawn'], drone:['✈','drone'], ugv:['⬢','UGV'], turret:['⌖','turret'], boss:['☠','boss'], tank:['⎔','tank'], target:['◎','target'], healthbox:['✚','healthbox'], radio:['◉','radio'], car:['🚙','car'], extract:['⬢','extract']
+  player:['P','player spawn'], pvp:['⚔','pvp spawn'], drone:['✈','drone'], ugv:['⬢','UGV'], turret:['⌖','turret'], boss:['☠','boss'], tank:['⎔','tank'], target:['◎','target'], healthbox:['✚','healthbox'], radio:['◉','radio'], car:['🚙','car'], melt:['☢','melt point'], trigger:['↯','trigger (stepnate)'], extract:['⬢','extract']
 };
 function renderEntGrid(){
   const g=$('entGrid'); if(!g) return;
@@ -683,6 +684,9 @@ export function initUI() {
   syncPvpUi();
   setPvpRebuild(syncPvpUi);
   try{ initMissionEditor(); }catch(e){ console.warn('mission editor',e); }
+  try{ initStepnate(); }catch(e){ console.warn('stepnate editor',e); }
+  initFwin('missionFwin', 'missionFwinClose');
+  initFwin('stepnateFwin', 'stepnateFwinClose');
   // refresh mission on rebuild
   const _reb = window.__studio ? window.__studio : null;
   if(window.__renderMission) try{ window.__renderMission(); }catch(e){}

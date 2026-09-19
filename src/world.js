@@ -13,6 +13,8 @@ import { setTankMapReady } from './tank.js';
 import { setRcMapReady } from './rc.js';
 import { setFogSlider } from './core.js';
 import { setMissionMapReady } from './mission.js';
+import { setMeltMapReady } from './melt.js';
+import { setTriggerMapReady } from './trigger.js';
 const ambient = new THREE.AmbientLight(0x403030, 0.5);
 scene.add(ambient);
 const moon = new THREE.DirectionalLight(0xff6a2a, 1.1);
@@ -572,9 +574,11 @@ function bakeBushes() {
 }
 
 function placeProp(model, pos, rotYdeg, scale, y, solid) {
-  if (model === 'tree.gltf') return placeTree(pos, rotYdeg, scale || 1, y, solid);
-  if (model === 'bush.gltf') return placeBush(pos, rotYdeg, scale || 1, y, solid);
+  if (model === 'tree.gltf') { propMeshes.push(null); return placeTree(pos, rotYdeg, scale || 1, y, solid); }
+  if (model === 'bush.gltf') { propMeshes.push(null); return placeBush(pos, rotYdeg, scale || 1, y, solid); }
   const g = mapGroup;
+  const rec = { mesh: null };
+  propMeshes.push(rec);
   loadProto(model, function(proto) {
     const m = proto.clone();
     m.scale.setScalar(scale);
@@ -585,6 +589,7 @@ function placeProp(model, pos, rotYdeg, scale, y, solid) {
     m.position.y = y === 'drop' ? groundHeight(pos[0], pos[1]) - bb.min.y : (y || 0) - bb.min.y;
     m.updateMatrixWorld(true);
     fixGun(m);
+    rec.mesh = m;
     g.add(m);
     if (solid === false) { buildUgvGrid(); return; }
     addBoxCollider(new THREE.Box3().setFromObject(m));
@@ -958,7 +963,9 @@ export function inGrass(x, z) {
 }
 
 
-export const MAP_SPAWNS = { player: null, ugvs: [], drones: [], turrets: [], bosses: [], ugvRoute: [], extract: null, sectors: [], healthBoxes: [], radios: [], pvp: [], cars: [], tanks: [] };
+export const MAP_SPAWNS = { player: null, ugvs: [], drones: [], turrets: [], bosses: [], ugvRoute: [], extract: null, sectors: [], healthBoxes: [], radios: [], pvp: [], cars: [], tanks: [], melts: [], triggers: [] };
+// stepnate: mesh handle per props[] entry (null for tree/bush, {mesh} filled async) — index-aligned with map props
+export const propMeshes = [];
 export const EXTRACT_R = 6;
 export function atExtract() {
   const e = MAP_SPAWNS.extract;
@@ -1069,6 +1076,7 @@ function resetWorld() {
   scene.remove(mapGroup);
   disposeChildren(mapGroup);
   colliders.length = 0; grid.fill(null);
+  propMeshes.length = 0;
   treeList.length = 0; treeCount = 0; treeChunks = [];
   bushList.length = 0; bushCount = 0; bushChunks = [];
 
@@ -1098,6 +1106,8 @@ export function applyMap(j) {
   MAP_SPAWNS.radios = [];
   MAP_SPAWNS.pvp = [];
   MAP_SPAWNS.cars = [];
+  MAP_SPAWNS.melts = [];
+  MAP_SPAWNS.triggers = [];
   MAP_SPAWNS.extract = null;
   clearExtractZone();
   if (j.terrain && j.terrain.heights) {
@@ -1127,6 +1137,8 @@ export function applyMap(j) {
     else if (e.kind === 'radio') MAP_SPAWNS.radios.push([e.pos[0], e.pos[1]]);
     else if (e.kind === 'car') MAP_SPAWNS.cars.push({ x: e.pos[0], z: e.pos[1], rotY: e.rotY || 0 });
     else if (e.kind === 'tank') MAP_SPAWNS.tanks.push({ x: e.pos[0], z: e.pos[1], rotY: e.rotY || 0 });
+    else if (e.kind === 'melt') MAP_SPAWNS.melts.push({ x: e.pos[0], z: e.pos[1], rotY: e.rotY || 0, trig: e.trig || 'area', r: e.r != null ? e.r : 8 });
+    else if (e.kind === 'trigger') MAP_SPAWNS.triggers.push({ x: e.pos[0], z: e.pos[1], trig: e.trig || 'area', r: e.r != null ? e.r : 8, actions: e.actions || [] });
     else if (e.kind === 'player') {
       MAP_SPAWNS.player = [e.pos[0], e.pos[1], e.rotY || 0];
       camera.position.x = e.pos[0];
@@ -1149,6 +1161,8 @@ export function applyMap(j) {
   setRcMapReady();
   if (S.resetMortar) S.resetMortar();
   setMissionMapReady(j);
+  setMeltMapReady();
+  setTriggerMapReady();
   syncHub();
   S.worldReady = true;
 }

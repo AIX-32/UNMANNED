@@ -351,16 +351,16 @@ export function markerSprite(text, color) {
 }
 export function buildEntityVisual(e, i) {
   const tag = function(o) { o.userData.ent = i; };
-  if (e.kind === 'target' || e.kind === 'turret' || e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio' || e.kind === 'tank') {
-    const file = e.kind === 'turret' ? 'turret.gltf' : e.kind === 'boss' ? 'TAT-10.gltf' : e.kind === 'healthbox' ? 'HPB.gltf' : e.kind === 'car' ? 'buggy.gltf' : e.kind === 'tank' ? 'tankv2.gltf' : e.kind === 'radio' ? 'radio.gltf' : 'target.gltf';
-    const sc = e.kind === 'turret' ? 1.6 : e.kind === 'boss' ? 1 : e.kind === 'healthbox' ? 1.3 : e.kind === 'car' ? 1.0 : e.kind === 'tank' ? 1.5 : e.kind === 'radio' ? 1 : 1.5;
+  if (e.kind === 'target' || e.kind === 'turret' || e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio' || e.kind === 'tank' || e.kind === 'melt') {
+    const file = e.kind === 'turret' ? 'turret.gltf' : e.kind === 'boss' ? 'TAT-10.gltf' : e.kind === 'healthbox' ? 'HPB.gltf' : e.kind === 'car' ? 'buggy.gltf' : e.kind === 'tank' ? 'tankv2.gltf' : e.kind === 'radio' ? 'radio.gltf' : e.kind === 'melt' ? 'frag.gltf' : 'target.gltf';
+    const sc = e.kind === 'turret' ? 1.6 : e.kind === 'boss' ? 1 : e.kind === 'healthbox' ? 1.3 : e.kind === 'car' ? 1.0 : e.kind === 'tank' ? 1.5 : e.kind === 'radio' ? 1 : e.kind === 'melt' ? 0.6 : 1.5;
     loadProto(file, function(proto) {
       const m = proto.clone();
       m.scale.setScalar(sc);
       const gy = sampleHeight(e.pos[0], e.pos[1]);
       m.position.set(e.pos[0], gy, e.pos[1]);
       m.rotation.y = THREE.MathUtils.degToRad(e.rotY || 0);
-      if (e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio' || e.kind === 'tank') {
+      if (e.kind === 'boss' || e.kind === 'healthbox' || e.kind === 'car' || e.kind === 'radio' || e.kind === 'tank' || e.kind === 'melt') {
         m.updateMatrixWorld(true);
         const bb = new THREE.Box3().setFromObject(m);
         m.position.y = gy - bb.min.y;
@@ -369,12 +369,24 @@ export function buildEntityVisual(e, i) {
       markGroup.add(m);
     });
   }
-  const colors = { player: '#7fbf4f', drone: '#ff5a5a', ugv: '#ffb84c', turret: '#ff6a6a', tank: '#8fb8ff', target: '#dddddd', boss: '#ff3b6b', healthbox: '#5ef77f', car: '#ffcc33', radio: '#5ef7f0', extract: '#5ab4ff', pvp1: '#5ac8ff', pvp2: '#ff5a5a' };
-  const labels = { player: 'P', drone: 'D', ugv: 'U', turret: 'M', tank: 'T', target: 'X', boss: 'B', healthbox: 'H', car: 'C', radio: 'R', extract: 'E' };
+  const colors = { player: '#7fbf4f', drone: '#ff5a5a', ugv: '#ffb84c', turret: '#ff6a6a', tank: '#8fb8ff', target: '#dddddd', boss: '#ff3b6b', healthbox: '#5ef77f', car: '#ffcc33', radio: '#5ef7f0', melt: '#ff7b00', trigger: '#ffd24c', extract: '#5ab4ff', pvp1: '#5ac8ff', pvp2: '#ff5a5a' };
+  const labels = { player: 'P', drone: 'D', ugv: 'U', turret: 'M', tank: 'T', target: 'X', boss: 'B', healthbox: 'H', car: 'C', radio: 'R', melt: 'M', trigger: '↯', extract: 'E' };
   const s = markerSprite(labels[e.kind] || (e.kind === 'pvp' ? String(e.team || 1) : '?'), colors[e.kind] || (e.kind === 'pvp' ? (e.team === 2 ? colors.pvp2 : colors.pvp1) : '#fff'));
   s.position.set(e.pos[0], sampleHeight(e.pos[0], e.pos[1]) + 2.2, e.pos[1]);
   tag(s);
   markGroup.add(s);
+
+  if (e.kind === 'melt' || e.kind === 'trigger') {
+    const R = e.r != null ? e.r : 8;
+    const ring = new THREE.LineLoop(
+      new THREE.CircleGeometry(R, 48),
+      new THREE.LineBasicMaterial({ color: e.trig === 'kill' ? 0xff3b3b : (e.kind === 'trigger' ? 0xffd24c : 0xff7b00), transparent: true, opacity: 0.55 })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(e.pos[0], sampleHeight(e.pos[0], e.pos[1]) + 0.06, e.pos[1]);
+    tag(ring);
+    markGroup.add(ring);
+  }
 
 
   if (e.kind === 'player' || e.kind === 'pvp') {
@@ -453,6 +465,7 @@ export function rebuildAll() {
   if (grassRebuild) grassRebuild();
   if (pvpRebuild) pvpRebuild();
   if (window.__renderMission) try{ window.__renderMission(); }catch(e){}
+  if (window.__renderStepnate) try{ window.__renderStepnate(); }catch(e){}
 }
 let storyRebuild = null;
 export function setStoryRebuild(fn) { storyRebuild = fn; }
@@ -621,8 +634,25 @@ export function showSelInfo() {
   if (S.selection.kind === 'sector') { const s = (S.map.sectors || [])[S.selection.i]; txt = 'SECTOR #' + S.selection.i + '  ' + ((s && s.pts ? s.pts.length : 0)) + ' pts'; }
   el.textContent = txt;
   el.style.color = '#7fbf4f';
+  if (S.selection.kind === 'ent') meltEditRow(S.map.entities[S.selection.i], el);
+  if (S.selection.kind === 'ent' && S.map.entities[S.selection.i] && S.map.entities[S.selection.i].kind === 'trigger' && window.__stepnateSelect) window.__stepnateSelect(S.selection.i);
   const isBox = S.selection.kind === 'block';
   if (isBox) showBulkBox(1); else hideBulkBox();
+}
+// ponytail: melt trigger editor — walk-in spot or on-enemy-death, radius in meters
+function meltEditRow(e, el) {
+  if (!e || e.kind !== 'melt') return;
+  if (e.trig == null) e.trig = 'area';
+  if (e.r == null) e.r = 8;
+  const row = document.createElement('div');
+  row.style.marginTop = '6px';
+  row.innerHTML = 'trigger <select id="meltTrigSel" style="background:#111;color:#ddd;border:1px solid #333;font:inherit"><option value="area">walk into spot</option><option value="kill">on enemy death</option></select>' +
+    ' <input id="meltRadIn" type="number" min="1" max="60" step="1" value="' + e.r + '" style="width:52px;background:#111;color:#ddd;border:1px solid #333;font:inherit"> m';
+  el.appendChild(row);
+  const ts = row.querySelector('#meltTrigSel'); ts.value = e.trig;
+  ts.addEventListener('change', function() { e.trig = ts.value; pushUndo(); dump(); saveAutosave(); rebuildAll(); });
+  const ri = row.querySelector('#meltRadIn');
+  ri.addEventListener('change', function() { e.r = Math.max(1, Math.min(60, parseFloat(ri.value) || 8)); pushUndo(); dump(); saveAutosave(); rebuildAll(); });
 }
 function showBulkBox(n) {
   const row = $('bulkBoxRow'); if (!row) return;

@@ -80,9 +80,9 @@ export function makeGhost() {
 
 
     const et = $('entSel').value;
-    const efile = et === 'target' ? 'target.gltf' : et === 'turret' ? 'turret.gltf' : et === 'boss' ? 'TAT-10.gltf' : et === 'healthbox' ? 'HPB.gltf' : et === 'tank' ? 'tankv2.gltf' : et === 'radio' ? 'radio.gltf' : null;
+    const efile = et === 'target' ? 'target.gltf' : et === 'turret' ? 'turret.gltf' : et === 'boss' ? 'TAT-10.gltf' : et === 'healthbox' ? 'HPB.gltf' : et === 'tank' ? 'tankv2.gltf' : et === 'radio' ? 'radio.gltf' : et === 'melt' ? 'frag.gltf' : null;
     if (efile) {
-      const esc = et === 'turret' ? 1.6 : et === 'boss' ? 1 : et === 'healthbox' ? 1.3 : et === 'tank' ? 1.5 : et === 'radio' ? 1 : 1.5;
+      const esc = et === 'turret' ? 1.6 : et === 'boss' ? 1 : et === 'healthbox' ? 1.3 : et === 'tank' ? 1.5 : et === 'radio' ? 1 : et === 'melt' ? 0.6 : 1.5;
       loadProto(efile, function(proto) {
         S.ghostLoading = false;
         if (S.tool !== 'place' || S.ghostKind !== k) return;
@@ -127,6 +127,49 @@ export function clearSelection() { S.selection = null; S.multiSel = null; showSe
 
 export function onMouseDown(btn, ev) {
   if (btn !== 0) return;
+  if (S.stepnateSpot) {
+    const a = S.stepnateSpot.a;
+    S.stepnateSpot = null;
+    document.body.style.cursor = '';
+    const hit = aimHit(false);
+    const p = hit && a.prop != null ? S.map.props[a.prop] : null;
+    const movable = p && p.model !== 'tree.gltf' && p.model !== 'bush.gltf';
+    if (hit && movable) {
+      pushUndo();
+      a.dx = +(hit.point.x - p.pos[0]).toFixed(2);
+      a.dz = +(hit.point.z - p.pos[1]).toFixed(2);
+      const fromY = typeof p.y === 'number' ? p.y : sampleHeight(p.pos[0], p.pos[1]);
+      a.dy = +(sampleHeight(hit.point.x, hit.point.z) - fromY).toFixed(2);
+      dump(); saveAutosave();
+      status('stepnate: end spot set — Δ(' + a.dx + ', ' + a.dy + ', ' + a.dz + ')');
+    } else {
+      status('stepnate: end spot cancelled');
+    }
+    if (window.__renderStepnate) try { window.__renderStepnate(); } catch (e) {}
+    return;
+  }
+  if (S.stepnatePick) {
+    const aimA = S.stepnatePick.a;
+    const hit = aimHit(false);
+    const pick = hit ? pickSelectable(hit.object) : null;
+    const prop = pick && pick.kind === 'prop' ? S.map.props[pick.i] : null;
+    const movable = prop && prop.model !== 'tree.gltf' && prop.model !== 'bush.gltf';
+    S.stepnatePick = null;
+    document.body.style.cursor = '';
+    if (!movable) {
+      status(prop ? 'stepnate: trees/bushes cannot move — pick cancelled' : 'stepnate: pick cancelled');
+      if (window.__renderStepnate) try { window.__renderStepnate(); } catch (e) {}
+      return;
+    }
+    if (window.__stepnateAimRestore) try { window.__stepnateAimRestore(); } catch (e) {}
+    pushUndo();
+    aimA.prop = pick.i;
+    S.stepnateAim = { a: aimA, i: pick.i, x: prop.pos[0], z: prop.pos[1], yNum: typeof prop.y === 'number', y: typeof prop.y === 'number' ? prop.y : 0 };
+    dump(); saveAutosave();
+    status('stepnate: prop #' + pick.i + ' picked — drag it to its END spot, then press Enter (Esc cancels)');
+    if (window.__renderStepnate) try { window.__renderStepnate(); } catch (e) {}
+    // fall through: the select branch below selects + drags the picked prop in this same click
+  }
   if (S.tool === 'select') {
 
     if (gizmoVisible()){
@@ -162,11 +205,12 @@ export function onMouseDown(btn, ev) {
     if (sel && (sel.kind === 'prop' || sel.kind === 'block' || sel.kind === 'ent')) {
       S.dragging = true;
       S.dragBaseY = hit.point.y;
+      S.dragStartMouseY = S.mouseY;
 
       const all = getSelections();
       S.dragStarts = all.map(function(s) {
-        if (s.kind === 'prop') return { s: s, x: S.map.props[s.i].pos[0], z: S.map.props[s.i].pos[1] };
-        if (s.kind === 'block') return { s: s, x: S.map.blocks[s.i].pos[0], z: S.map.blocks[s.i].pos[2] };
+        if (s.kind === 'prop') { const m = propGroup.children[s.i]; return { s: s, x: S.map.props[s.i].pos[0], z: S.map.props[s.i].pos[1], y: m ? m.position.y : 0 }; }
+        if (s.kind === 'block') { const m = blockGroup.children[s.i]; return { s: s, x: S.map.blocks[s.i].pos[0], z: S.map.blocks[s.i].pos[2], y: m ? m.position.y : 0 }; }
         if (s.kind === 'ent') return { s: s, x: S.map.entities[s.i].pos[0], z: S.map.entities[s.i].pos[1] };
         return null;
       });
@@ -287,7 +331,7 @@ export function deleteSector(si) {
   status('sector deleted');
 }
 
-function pickSelectable(obj) {
+export function pickSelectable(obj) {
   let o = obj;
   while (o) {
     if (o.parent === propGroup) return { kind: 'prop', i: propGroup.children.indexOf(o) };
