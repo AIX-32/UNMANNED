@@ -15,6 +15,7 @@ import { setFogSlider } from './core.js';
 import { setMissionMapReady } from './mission.js';
 import { setMeltMapReady } from './melt.js';
 import { setTriggerMapReady } from './trigger.js';
+import { hasWorkers, runJob } from './parallel.js';
 const ambient = new THREE.AmbientLight(0x403030, 0.5);
 scene.add(ambient);
 const moon = new THREE.DirectionalLight(0xff6a2a, 1.1);
@@ -863,6 +864,30 @@ export function updateGrassCull() {
     ch.insts.forEach(function(o){ o.im.castShadow = near; });
   }
 }
+// ponytail: worker cull — compute visibility off-thread, apply on main. Falls back to sync above.
+let _grassPending = null, _grassBusy = false;
+export function updateGrassCullWorker(){
+  if(!hasWorkers() || !grassChunks.length){ updateGrassCull(); return; }
+  if(_grassBusy) return; // pipeline: skip if previous still in flight — next frame will retry
+  const cx=camera.position.x, cz=camera.position.z, fogR2=fogCullR2();
+  const chunks = grassChunks.map(c=>({x:c.x,z:c.z}));
+  _grassBusy=true;
+  _grassPending = runJob('grassCull', {chunks, cx, cz, fogR2}).then(res=>{
+    const vis = res.result;
+    if(vis && vis.length===grassChunks.length){
+      for(let i=0;i<grassChunks.length;i++) grassChunks[i].mesh.visible = !!vis[i];
+      // tree shadows still sync (tiny)
+      for(let i=0;i<treeChunks.length;i++){
+        const ch=treeChunks[i], t=treeList[ch.idxs?ch.idxs[0]:0];
+        if(!t) continue;
+        const d2=(t.x-cx)*(t.x-cx)+(t.z-cz)*(t.z-cz);
+        const near=d2<10000;
+        ch.insts.forEach(o=>{ o.im.castShadow=near; });
+      }
+    }
+    _grassBusy=false;
+  }).catch(()=>{ _grassBusy=false; updateGrassCull(); });
+}
 
 
 let rainLines = null, rainPos = null, rainVel = null, rainLen = null, rainDx = null, rainDz = null;
@@ -942,6 +967,27 @@ export function updateRain(dt){
     arr[j+3]=x - (windX+dx)*0.09 - 0.16; arr[j+4]=y-len; arr[j+5]=z - (windZ+dz)*0.09 - 0.11;
   }
   g.needsUpdate = true;
+}
+// ponytail: worker rain — clone pos to worker, pipeline, fallback to sync
+let _rainBusy=false;
+export function updateRainWorker(dt){
+  if(!hasWorkers() || !rainLines || !rainPos){ updateRain(dt); return; }
+  if(_rainBusy) return;
+  const g = rainLines.geometry.attributes.position;
+  const arr = g.array;
+  const cx=camera.position.x, cz=camera.position.z, cy=camera.position.y;
+  // material tint still on main (tiny)
+  const mat=rainLines.material, night=typeof nightOn!=='undefined'?nightOn:false;
+  mat.color.setHex(night?0x96a8c8:0xc9d7f0); mat.opacity=night?0.28:0.38;
+  const t=Date.now()*0.00012;
+  // ponytail: copy pos for worker, non-transfer clone keeps main buffer alive
+  const posCopy = new Float32Array(arr);
+  const payload = { n:RAIN_COUNT, pos:posCopy, vel:rainVel.slice(), len:rainLen.slice(), dx:rainDx.slice(), dz:rainDz.slice(), cx, cz, cy, dt, t, R:RAIN_RAD, TOP:RAIN_TOP, terrain: getTerrain() };
+  _rainBusy=true;
+  runJob('rain', payload).then(res=>{
+    if(res.result && res.result.length===arr.length){ arr.set(res.result); g.needsUpdate=true; }
+    _rainBusy=false;
+  }).catch(()=>{ _rainBusy=false; updateRain(dt); });
 }
 
 

@@ -5,7 +5,8 @@ import { perf, perfMark, perfEnd, perfFrameStart, perfFrameEnd, perfSetDraws, pe
 import { S, GUN_POS, GUN_ROT, ADS_POS, ADS_ROT, recoilPivot, inGun, takeLook } from './state.js';
 import { updateFiring, hudInfo, flashSync, FLASH, FLASH_DEBUG, curWeaponName, getGunModel, flash, getMuzzleFlash, reloadK, switchK, getWorldFlash, updateLandingMarker, wgsSpeedBoost, weaponSpeedMul, bashRot, bashThrust, viewPos, viewRot, updateBoxUse, cancelBox, boxDip, boxUseInfo, brainTargetPos } from './weapons.js';
 import { updateAmmoUI, updateHpUI, updateCcUI, updateRadarUI, updateGrenadeUI, updatePvpHud, updateHudVisibility, setHpFlash, showDeathScreen, hideDeathBoard, flashDbg, placeUIPanels, showSubtitle, updateSubtitle, placeBossHud, placeMissionHud, updateMissionHud, updateBoxBar, hideBoxBar, requestGameLock } from './ui.js';
-import { resolveCollisions, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull, updateRain, pointInCollider } from './world.js';
+import { resolveCollisions, supportHeight, groundHeight, MAP_SPAWNS, updateHealthBoxes, atExtract, updateRadios, radiosPlaced, radiosLeft, updateGrassCull, updateGrassCullWorker, updateRain, updateRainWorker, pointInCollider } from './world.js';
+import { hasWorkers, workerCount } from './parallel.js';
 import { updateUgv, allUgvsDead, ugvCount, lowerCert as ugvLowerCert } from './ugv.js';
 import { updateTurrets, allTurretsDead, turretCount, lowerCert as turretLowerCert } from './turret.js';
 import { updateDrone, lowerCert as droneLowerCert } from './drone.js';
@@ -62,6 +63,9 @@ let sprintT = 0;
 // ponytail: downhill slide after jumping — not controllable, grit path if needed
 let slideT = 0, slideMax = 0, slideJumped = false, slideJumpAir = false;
 const _slideDir = new THREE.Vector2();
+// ponytail: coyote+buffer — cheap forgiving jump, grit if need variable windows per map
+let coyoteT = 0, jumpBufT = 0;
+let leanCur = 0; // ponytail: smoothed strafe roll, lerp not instant
 let adsBlend = 0;
 let wasDead = false;
 let airFloor = 0;
@@ -225,29 +229,41 @@ function updatePlayer(dt) {
   }
   wasProne = S.prone;
   wasSupine = S.supine;
+  // tactical: sprint builds fast, decays slower in air to keep momentum
   isSprinting = (S.keys['ShiftLeft'] || S.keys['ShiftRight']) && !S.ads;
-  sprintT += ((isSprinting && onGround ? 1 : 0) - sprintT) * Math.min(1, dt * 8);
+  const sprintWant = (isSprinting && onGround ? 1 : 0);
+  const sprintRate = (sprintWant > sprintT) ? 8 : (onGround ? 8 : 3);
+  sprintT += (sprintWant - sprintT) * Math.min(1, dt * sprintRate);
   S.sprint = sprintT;
   let speed = S.prone ? 1.2 : (4 + sprintT * 4);
   if (S.ads) speed *= 0.55;
   speed *= weaponSpeedMul();
   speed *= 1 - S.wallProx * 0.3;
 
-
+  // tactical: prone dip slower down, faster up; slight weight
   const targetEye = S.prone ? 0.45 : 1.7;
-  eyeCur = THREE.MathUtils.lerp(eyeCur, targetEye, Math.min(1, dt * 9));
+  const eyeRate = (targetEye < eyeCur) ? 6 : 10;
+  eyeCur = THREE.MathUtils.lerp(eyeCur, targetEye, Math.min(1, dt * eyeRate));
+  if (S.prone && !wasProne) landK = Math.max(landK, 0.15);
 
-
-  if (S.keys['Space'] && onGround) {
-    if (S.prone) S.prone = false;
+  // coyote (0.14s) + jump buffer (0.18s)
+  coyoteT = onGround ? 0.14 : Math.max(0, coyoteT - dt);
+  jumpBufT = S.keys['Space'] ? 0.18 : Math.max(0, jumpBufT - dt);
+  const canJump = jumpBufT > 0 && coyoteT > 0.001;
+  if (canJump) {
+    if (S.prone) { S.prone = false; jumpBufT = 0; }
     else {
       const wasSliding = slideT > 0;
       velY = 6.5;
       slideJumped = true;
       if (wasSliding) { airFloor = Math.hypot(vel.x, vel.z); slideT = 0; slideMax = 0; slideJumpAir = true; }
       else slideJumpAir = false;
+      jumpBufT = 0;
+      coyoteT = 0;
     }
   }
+  // tactical: variable jump — releasing Space early cuts upward velocity
+  if (!S.keys['Space'] && velY > 0) velY -= 20 * dt * 0.6;
   velY -= 20 * dt;
   playerY += velY * dt;
 
@@ -255,10 +271,13 @@ function updatePlayer(dt) {
   const floorEye = supportHeight(camera.position.x, camera.position.z, footY) + eyeCur;
   if (playerY <= floorEye) {
     if (!onGround) {
-
-      landK = Math.min(0.6, Math.max(0, -velY) * 0.015);
+      // tactical: heavier landing — weight scales with impact
+      const impact = Math.max(0, -velY);
+      landK = Math.min(0.9, impact * 0.018);
       S.shakeX += (Math.random() - 0.5) * 0.02 * landK;
       S.shakeY += (Math.random() - 0.5) * 0.02 * landK;
+      S.fovPunch += Math.min(4, impact * 0.35);
+      S.caKick = Math.min(0.7, S.caKick + landK * 0.4);
       if (slideJumped) {
         const gx = groundHeight(camera.position.x + 0.8, camera.position.z) - groundHeight(camera.position.x - 0.8, camera.position.z);
         const gz = groundHeight(camera.position.x, camera.position.z + 0.8) - groundHeight(camera.position.x, camera.position.z - 0.8);
@@ -272,7 +291,8 @@ function updatePlayer(dt) {
       }
       slideJumped = false; slideJumpAir = false;
     } else if (floorEye - lastFloorEye > 0.25) {
-      landK = Math.max(landK, 0.25);
+      landK = Math.max(landK, 0.28);
+      S.fovPunch += 0.8;
     }
     lastFloorEye = floorEye;
     playerY = floorEye;
@@ -289,6 +309,8 @@ function updatePlayer(dt) {
     if (!onGround) { slideT = 0; slideMax = 0; }
   }
   S.airborne = !onGround;
+  // keep coyote window alive while grounded
+  if (onGround) coyoteT = 0.14;
 
   if (onGround) {
     if (slideT > 0) {
@@ -313,23 +335,24 @@ function updatePlayer(dt) {
           _tV.set(0, 0, 0).addScaledVector(forward, _iny > 0 ? _iny * MOVE_FWD : _iny * MOVE_BACK).addScaledVector(right, _inx * MOVE_STRAFE);
           if (_tV.length() > 0) { _tV.normalize(); const dot = _tV.x * _slideDir.x + _tV.z * _slideDir.y; if (dot > 0.2) spd *= 1 + dot * 0.75; }
         }
-        spd *= 0.78 + Math.random() * 0.42;
-        if (Math.random() < 0.07) spd *= 0.45; // rock snag
-        const angJ = (Math.random() - 0.5) * 0.32;
+        // tactical: de-noised slide — readable but still gritty
+        spd *= 0.88 + Math.random() * 0.24;
+        if (Math.random() < 0.02) spd *= 0.55; // rock snag rarer
+        const angJ = (Math.random() - 0.5) * 0.18;
         const cs = Math.cos(angJ), sn = Math.sin(angJ);
         const dx = _slideDir.x * cs - _slideDir.y * sn;
         const dy = _slideDir.x * sn + _slideDir.y * cs;
         const tx = dx * spd, tz = dy * spd;
         vel.x += (tx - vel.x) * Math.min(1, dt * 7);
         vel.z += (tz - vel.z) * Math.min(1, dt * 7);
-        vel.x += (Math.random() - 0.5) * 0.7 * slope2;
-        vel.z += (Math.random() - 0.5) * 0.7 * slope2;
-        if (Math.random() < 0.09) landK = Math.max(landK, 0.12 + Math.random() * 0.14);
-        if (Math.random() < 0.04) { vel.x *= 0.6; vel.z *= 0.6; }
-        S.shakeX += (Math.random() - 0.5) * 0.025 * slope2;
-        S.shakeY += (Math.random() - 0.5) * 0.02 * slope2;
-        S.caKick = Math.min(0.5, S.caKick + Math.random() * 0.06 * slope2);
-        S.fovPunch += Math.random() * 0.4 * slope2;
+        vel.x += (Math.random() - 0.5) * 0.45 * slope2;
+        vel.z += (Math.random() - 0.5) * 0.45 * slope2;
+        if (Math.random() < 0.04) landK = Math.max(landK, 0.12 + Math.random() * 0.10);
+        if (Math.random() < 0.015) { vel.x *= 0.65; vel.z *= 0.65; }
+        S.shakeX += (Math.random() - 0.5) * 0.018 * slope2;
+        S.shakeY += (Math.random() - 0.5) * 0.014 * slope2;
+        S.caKick = Math.min(0.5, S.caKick + Math.random() * 0.04 * slope2);
+        S.fovPunch += Math.random() * 0.25 * slope2;
         airFloor = vel.length();
       } else { slideT = 0; slideMax = 0; }
     }
@@ -343,14 +366,21 @@ function updatePlayer(dt) {
       tVel.addScaledVector(forward, iny > 0 ? iny * MOVE_FWD : iny * MOVE_BACK)
           .addScaledVector(right, inx * MOVE_STRAFE);
       if (tVel.length() > 0) tVel.normalize().multiplyScalar(speed);
-      vel.lerp(tVel, Math.min(1, dt * 12));
+      // tactical: split accel vs friction — quicker start, heavier stop
+      const hasInput = tVel.length() > 0.001;
+      if (hasInput) {
+        const accel = 14 * (S.prone ? 0.6 : 1) * (1 + sprintT * 0.35);
+        vel.lerp(tVel, Math.min(1, dt * accel));
+      } else {
+        // friction — tactical damped, not ice
+        vel.lerp(tVel, Math.min(1, dt * 16));
+      }
       airFloor = vel.length();
     }
   } else {
-
-
-    const AIR_ACCEL = 1.5;
-    const MAX_AIR_SPEED = Math.max(speed * 0.6, airFloor);
+    // tactical: slightly more air control, less bleed on slide-jump momentum
+    const AIR_ACCEL = 2.2;
+    const MAX_AIR_SPEED = Math.max(speed * 0.65, airFloor);
     if (S.keys['KeyW']) vel.addScaledVector(forward, AIR_ACCEL * dt * MOVE_FWD);
     if (S.keys['KeyS']) vel.addScaledVector(forward, -AIR_ACCEL * dt * MOVE_BACK);
     if (S.keys['KeyD']) vel.addScaledVector(right, AIR_ACCEL * dt * MOVE_STRAFE);
@@ -359,15 +389,18 @@ function updatePlayer(dt) {
     const horiz = _tV2.set(vel.x, 0, vel.z);
     if (horiz.length() > MAX_AIR_SPEED) horiz.setLength(MAX_AIR_SPEED);
     vel.x = horiz.x; vel.z = horiz.z;
-    vel.multiplyScalar(Math.pow(slideJumpAir ? 0.995 : 0.98, dt * 60));
+    vel.multiplyScalar(Math.pow(slideJumpAir ? 0.998 : 0.992, dt * 60));
   }
-  landK *= Math.pow(0.0001, dt);
+  // tactical: slower land decay so dip reads
+  landK *= Math.pow(0.001, dt);
 
   const res = resolveCollisions(camera.position.x + vel.x * dt, camera.position.z + vel.z * dt, vel,
     footY, footY + Math.max(eyeCur * 1.05, 0.7));
   camera.position.x = res[0];
   camera.position.z = res[1];
-  camera.position.y = playerY + Math.sin(walkTime * 0.5) * 0.04 * (onGround ? 1 : 0) - landK * 0.05;
+  const vScale = THREE.MathUtils.clamp(vel.length() / Math.max(1, speed), 0, 1);
+  const bobAmp = 0.7 + vScale * 0.6;
+  camera.position.y = playerY + Math.sin(walkTime * 0.5) * 0.04 * bobAmp * (onGround ? 1 : 0) - landK * 0.10;
   const isMoving = onGround && vel.length() > 0.1;
   if (isMoving) walkTime += dt * vel.length() * (S.prone ? 3.2 : 1.8);
   return isMoving;
@@ -380,7 +413,7 @@ function updateCameraRig(dt) {
     let zoomT = S.BASE_FOV - 62 * br;
     if (S.prone) zoomT -= 5 * (1-br);
     S.zoomCur += (zoomT - S.zoomCur) * Math.min(1, dt * 10);
-    const sprintPunch = sprintT * 3 * (1-br);
+    const sprintPunch = sprintT * 4.5 * (1-br);
     camera.fov = S.zoomCur + (S.straf ? 0 : S.fovPunch) * (1-br*0.9) + sprintPunch;
     camera.updateProjectionMatrix();
 
@@ -401,6 +434,13 @@ function updateCameraRig(dt) {
     const kickShare2 = S.straf ? STRAF_CAM_SHARE : 1;
     aimEuler2.x = THREE.MathUtils.clamp(aimEuler2.x + S.recoil.x * kickShare2 + (S.straf ? 0 : S.shakeX)*(1-br), -Math.PI / 2.2, S.supine ? Math.PI * 0.62 : Math.PI / 2.2);
     aimEuler2.y += S.recoil.y * kickShare2 + (S.straf ? 0 : S.shakeY)*(1-br);
+    // tactical: keep leanCur alive even when zoomed, suppressed by br
+    {
+      const strafeIn2 = (S.keys['KeyD'] ? 1 : 0) - (S.keys['KeyA'] ? 1 : 0);
+      const leanTgt2 = strafeIn2 * 0.038 * (0.5 + sprintT * 0.5) * (onGround ? 1 : 0.35);
+      leanCur += (leanTgt2 - leanCur) * Math.min(1, dt * 6);
+      aimEuler2.z += leanCur * (1 - br * 0.9);
+    }
     camera.quaternion.setFromEuler(aimEuler2);
     S.shakeX *= Math.pow(0.0004, dt); S.shakeY *= Math.pow(0.0004, dt);
     S.fovPunch = THREE.MathUtils.lerp(S.fovPunch, 0, Math.min(1, dt * 8));
@@ -450,14 +490,21 @@ function updateCameraRig(dt) {
   const kickShare = S.straf ? STRAF_CAM_SHARE : 1;
   aimEuler.x = THREE.MathUtils.clamp(aimEuler.x + S.recoil.x * kickShare + (S.straf ? 0 : S.shakeX), -Math.PI / 2.2, S.supine ? Math.PI * 0.62 : Math.PI / 2.2);
   aimEuler.y += S.recoil.y * kickShare + (S.straf ? 0 : S.shakeY);
+  // tactical: smoothed roll with strafe + sprint lean — eases in/out instead of instant
+  const strafeIn = (S.keys['KeyD'] ? 1 : 0) - (S.keys['KeyA'] ? 1 : 0);
+  const leanTgt = strafeIn * 0.038 * (0.5 + sprintT * 0.5) * (onGround ? 1 : 0.35);
+  leanCur += (leanTgt - leanCur) * Math.min(1, dt * 6);
+  aimEuler.z += leanCur;
   camera.quaternion.setFromEuler(aimEuler);
   S.shakeX *= Math.pow(0.0004, dt); S.shakeY *= Math.pow(0.0004, dt);
   S.fovPunch = THREE.MathUtils.lerp(S.fovPunch, 0, Math.min(1, dt * 8));
   let zoomT = S.BASE_FOV + (S.straf ? 10 : 0);
   if (S.prone) zoomT -= 5;
   if (S.ads) zoomT = S.BASE_FOV - 20;
+  // tactical: wall tightness narrows FOV slightly
+  if (S.wallProx > 0.6) zoomT -= S.wallProx * 1.5;
   S.zoomCur += (zoomT - S.zoomCur) * Math.min(1, dt * 10);
-  const sprintPunch = sprintT * 3;
+  const sprintPunch = sprintT * 4.5;
   camera.fov = S.zoomCur + (S.straf ? 0 : S.fovPunch) + sprintPunch;
   camera.updateProjectionMatrix();
 
@@ -563,7 +610,7 @@ function updateViewmodel(dt, now, isMoving) {
 
   let rx = THREE.MathUtils.lerp(grx + rotXb + S.aimErr.y + S.wallProx * 0.6, ADS_ROT.x, adsBlend) + (S.straf ? S.recoil.x * STRAF_GUN_SHARE + S.shakeX : 0) - runPose * 0.32 - rl * 0.85 - sk * 1.2;
   let ry = THREE.MathUtils.lerp(gry + S.aimErr.x, ADS_ROT.y, adsBlend) + (S.straf ? S.recoil.y * STRAF_GUN_SHARE + S.shakeY : 0);
-  let rz = THREE.MathUtils.lerp(grz + rotZb, ADS_ROT.z, adsBlend) + (S.straf ? S.shakeX * 0.6 : 0) + rl * 0.25 - sk * 0.4 + strafeLean * 0.03 * moveBlend;
+  let rz = THREE.MathUtils.lerp(grz + rotZb, ADS_ROT.z, adsBlend) + (S.straf ? S.shakeX * 0.6 : 0) + rl * 0.25 - sk * 0.4 + strafeLean * 0.045 * moveBlend;
 
 
 
@@ -719,7 +766,7 @@ function playTick(dt, now) {
 
 
   perfMark('postFx'); S.caKick *= Math.pow(0.02, dt);
-  const motionCA = S.caKick * 0.1 + (Math.abs(S.shakeX) + Math.abs(S.shakeY)) * 0.5 + vel.length() * 0.002;
+  const motionCA = S.caKick * 0.1 + (Math.abs(S.shakeX) + Math.abs(S.shakeY)) * 0.5 + vel.length() * 0.003;
   postMat.uniforms.uCA.value = Math.min(0.02 + motionCA, 0.5); perfEnd('postFx');
   perfEnd('tick');
 }
@@ -732,6 +779,8 @@ function animate() {
 
 
 
+  // ponytail: pipeline grass/rain to workers — runs on other cores while tick runs on main
+  if(hasWorkers()){ try{ updateGrassCullWorker(); updateRainWorker(frameDt); }catch(e){} }
   updateHudVisibility();
   placeBossHud();
   placeMissionHud();
@@ -812,7 +861,8 @@ function animate() {
           const gh = rec.y || (groundHeight(rec.x, rec.z)+1.7);
            camera.position.set(rec.x, gh, rec.z);
           S.euler.y = rec.yaw || 0;
-          playerY = gh; velY=0; vel.set(0,0,0); slideT=0; slideMax=0; slideJumped=false; slideJumpAir=false;
+           playerY = gh; velY=0; vel.set(0,0,0); slideT=0; slideMax=0; slideJumped=false; slideJumpAir=false;
+          coyoteT=0.14; jumpBufT=0; landK=0; leanCur=0;
           S.hp=S.maxHp; S.dead=false; S.respawnRequested=false;
           wasDead=false; deathAnimating=false; kcPhase=0;
           ugvLowerCert(); droneLowerCert(); turretLowerCert(); bossLowerCert();
@@ -829,6 +879,7 @@ function animate() {
       camera.position.set(sx, eyeCur, sz);
       if (sp && sp[2] != null) S.euler.y = THREE.MathUtils.degToRad(sp[2]);
       playerY = eyeCur; velY = 0; vel.set(0, 0, 0); slideT=0; slideMax=0; slideJumped=false; slideJumpAir=false;
+      coyoteT=0.14; jumpBufT=0; landK=0; leanCur=0;
       S.hp = S.maxHp; S.dead = false; S.respawnRequested = false;
       wasDead = false; deathAnimating = false; kcPhase = 0;
       ugvLowerCert(); droneLowerCert(); turretLowerCert(); bossLowerCert();
@@ -855,7 +906,9 @@ function animate() {
 
   const n = consumeTicks(frameDt);
   for (let i = 0; i < n; i++) playTick(TICK_DT, now);
-  perfMark('grass'); updateGrassCull(); perfEnd('grass');
+  if(!hasWorkers()){
+    perfMark('grass'); updateGrassCull(); perfEnd('grass');
+  } else { perfMark('grass'); perfEnd('grass'); }
   // track visible grass + props for perf overlay
   try {
     let vg = 0; const _gc = window.__gaultGrassChunks || null;
@@ -863,7 +916,8 @@ function animate() {
     vg = (renderer.info.render.calls || 0);
     perfSetCounts(vg, 0);
   } catch(e){}
-  perfMark('rain'); updateRain(frameDt); perfEnd('rain');
+  if(!hasWorkers()){ perfMark('rain'); updateRain(frameDt); perfEnd('rain'); }
+  else { perfMark('rain'); perfEnd('rain'); }
   renderFrame(now);
   perfSetDraws(renderer.info.render.calls, renderer.info.render.triangles);
   perfFrameEnd();

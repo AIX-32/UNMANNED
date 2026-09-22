@@ -9,6 +9,7 @@ import { ugvShot } from './audio.js';
 import { addCc } from './ui.js';
 import { radarBonus } from './radar.js';
 import { identTarget } from './ident.js';
+import { hasWorkers, runJob } from './parallel.js';
 
 const UGV_LEN = 3.0;
 const UGV_RAD = 1.35;
@@ -539,6 +540,22 @@ function ugvCell(x, z) {
 }
 
 
+// ponytail: worker plan — offload A* (blocked grid copy) to core, pipeline, fallback to sync
+function planAsync(u, tx, tz, cb){
+  if(!hasWorkers()){ try{ cb(ugvPlan(u, tx, tz)); }catch(e){ cb(null); } return; }
+  if(u._planBusy) return; // one at a time per UGV
+  u._planBusy=true;
+  const payload={ N:UGV_N, CELL:UGV_CELL, blocked: u.sectorMask ? u.sectorMask.slice() : ugvBlocked.slice(), start: ugvCell(u.x,u.z), goal: ugvCell(tx,tz), sx:u.x, sz:u.z, tx, tz, terrain: null };
+  // terrain heights not sent — worker falls back to sin formula, close enough for nav slope; exact heights only add tiny penalty
+  try{ payload.terrain = null; }catch(e){}
+  runJob('plan', payload).then(r=>{
+    u._planBusy=false;
+    cb(r.result||null);
+  }).catch(()=>{
+    u._planBusy=false;
+    try{ cb(ugvPlan(u, tx, tz)); }catch(e){ cb(null); }
+  });
+}
 function ugvPlan(u, tx, tz) {
   const blocked = u.sectorMask || ugvBlocked;
   const start = ugvCell(u.x, u.z), goal = ugvCell(tx, tz);
@@ -624,6 +641,30 @@ function ugvLOS(ax, az, bx, bz, blocked) {
   return true;
 }
 function ugvPickAndPlan(u) {
+  // ponytail: if workers, dispatch A* off-thread (1 frame latency), else sync
+  if (hasWorkers() && !u._planBusy) {
+    if (u.sectorMask) {
+      const poly = sectorPolys[u.sector];
+      let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+      for(let i=0;i<poly.length;i++){ minX=Math.min(minX,poly[i][0]); maxX=Math.max(maxX,poly[i][0]); minZ=Math.min(minZ,poly[i][1]); maxZ=Math.max(maxZ,poly[i][1]); }
+      let tx=u.x,tz=u.z;
+      for(let tries=0;tries<30;tries++){ tx=minX+Math.random()*(maxX-minX); tz=minZ+Math.random()*(maxZ-minZ); if(pointInPoly(tx,tz,poly)) break; }
+      if(!pointInPoly(tx,tz,poly)){ tx=(minX+maxX)/2; tz=(minZ+maxZ)/2; }
+      planAsync(u, tx, tz, path=>{ if(path&&path.length>1){ u.path=path; u.pi=0; } else u.pauseT=1; });
+      u.pauseT=0.12; return;
+    }
+    const R=MAP_SPAWNS.ugvRoute;
+    if(R.length){
+      const wp=R[u.routeI%R.length]; u.routeI++;
+      planAsync(u, wp[0], wp[1], path=>{ if(path&&path.length>1){ u.path=path; u.pi=0; } else u.pauseT=1; });
+      u.pauseT=0.12; return;
+    }
+    const off=(Math.random()-0.5)*1.6, d=30+Math.random()*50;
+    const tx=THREE.MathUtils.clamp(u.x - Math.sin(u.yaw+off)*d, -90, 90);
+    const tz=THREE.MathUtils.clamp(u.z - Math.cos(u.yaw+off)*d, -90, 90);
+    planAsync(u, tx, tz, path=>{ if(path&&path.length>1){ u.path=path; u.pi=0; } else u.pauseT=0.6; });
+    u.pauseT=0.12; return;
+  }
   if (u.sectorMask) {
 
     const poly = sectorPolys[u.sector];
@@ -807,9 +848,13 @@ function updateOne(u, dt, now) {
         u.noticeT = NOTICE_TIME;
         u.invT = 0;
       } else if (!u.path || u.pi >= u.path.length) {
-        const path = ugvPlan(u, u.invX, u.invZ);
-        if (path && path.length > 1) { u.path = path; u.pi = 0; }
-        else u.invT = 0;
+        if(hasWorkers() && !u._planBusy){
+          planAsync(u, u.invX, u.invZ, path=>{ if(path&&path.length>1){ u.path=path; u.pi=0; } else u.invT=0; });
+        } else if(!u._planBusy){
+          const path = ugvPlan(u, u.invX, u.invZ);
+          if (path && path.length > 1) { u.path = path; u.pi = 0; }
+          else u.invT = 0;
+        }
       }
     } else if (u.noticeT > 0) {
 
