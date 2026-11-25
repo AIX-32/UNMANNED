@@ -7,7 +7,7 @@ export const S = {
   euler: new THREE.Euler(0, 0, 0, 'YXZ'),
   isLocked: false,
   everLocked: false,
-  settings: { strafLock: false, laptop: false, aimAssist: 1.12, brain: false, showFps: false },
+  settings: { strafLock: false, laptop: false, aimAssist: 1.12, brain: false, showFps: false, ca: true },
 
 
   straf: false,

@@ -1,5 +1,5 @@
 
-import { renderer, camera, scene } from './core.js';
+import { renderer, camera, scene, postMat } from './core.js';
 import { S } from './state.js';
 import { applyAimAssist as applyUgvAssist } from './ugv.js';
 import { applyAimAssist as applyDroneAssist } from './drone.js';
@@ -532,6 +532,8 @@ const menuBtns = [];
 S.settings.laptop = idb.get('gault_laptop') === '1';
 S.settings.brain = idb.get('gault_brainassist') === '1';
 S.settings.showFps = idb.get('gault_showfps') === '1';
+S.settings.ca = idb.get('gault_ca') !== '0';
+postMat.uniforms.uCAEnabled.value = S.settings.ca ? 1 : 0;
 
 const aa = parseFloat(idb.get('gault_aimassist'));
 S.settings.aimAssist = isFinite(aa) ? aa : 1.12;
@@ -602,14 +604,15 @@ function drawMenu() {
     ctx.font = TITLE_FONT;
     ctx.textBaseline = 'middle';
     ctx.fillText('SETTINGS', W / 2, 90);
-    menuBtns.push(menuCheck(280, 132, 460, 48, 'ALWAYS-ON STRAF', S.settings.strafLock));
-    menuBtns.push(menuCheck(280, 180, 460, 48, 'LAPTOP MODE', S.settings.laptop));
-    menuBtns.push(menuCheck(280, 228, 460, 48, 'BRAIN ASSIST', S.settings.brain));
-    menuBtns.push(menuCheck(280, 276, 460, 48, 'FPS COUNTER', S.settings.showFps));
-    menuStepper(280, 324, 460, 48, 'DIFFICULTY', getMissionDiff().toUpperCase(), 'diff');
-    menuStepper(280, 372, 460, 48, 'AIM ASSIST', S.settings.aimAssist.toFixed(2), 'aim');
-    menuBtns.push(menuBtn(280, 422, 460, 38, 'RESET AIM ASSIST', 'btn'));
-    menuBtns.push(menuBtn(280, 464, 460, 36, 'BACK', 'btn'));
+    menuBtns.push(menuCheck(280, 124, 460, 40, 'ALWAYS-ON STRAF', S.settings.strafLock));
+    menuBtns.push(menuCheck(280, 164, 460, 40, 'LAPTOP MODE', S.settings.laptop));
+    menuBtns.push(menuCheck(280, 204, 460, 40, 'BRAIN ASSIST', S.settings.brain));
+    menuBtns.push(menuCheck(280, 244, 460, 40, 'FPS COUNTER', S.settings.showFps));
+    menuBtns.push(menuCheck(280, 284, 460, 40, 'CA EFFECT', S.settings.ca));
+    menuStepper(280, 328, 460, 40, 'DIFFICULTY', getMissionDiff().toUpperCase(), 'diff');
+    menuStepper(280, 372, 460, 40, 'AIM ASSIST', S.settings.aimAssist.toFixed(2), 'aim');
+    menuBtns.push(menuBtn(280, 416, 460, 40, 'RESET AIM ASSIST', 'btn'));
+    menuBtns.push(menuBtn(280, 460, 460, 40, 'BACK', 'btn'));
   }
   menuTex.needsUpdate = true;
 }
@@ -722,6 +725,10 @@ function fireMenuButton(b) {
       S.settings.showFps = !S.settings.showFps;
       idb.set('gault_showfps', S.settings.showFps ? '1' : '0');
       _updateInfo();
+    } else if (b.label === 'CA EFFECT') {
+      S.settings.ca = !S.settings.ca;
+      idb.set('gault_ca', S.settings.ca ? '1' : '0');
+      postMat.uniforms.uCAEnabled.value = S.settings.ca ? 1 : 0;
     }
     drawMenu();
   } else if (b.label === 'PHOTO MODE') {

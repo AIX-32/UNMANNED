@@ -77,7 +77,7 @@ Shared mutable bag `S` (keys, euler, lock flags, straf/ads/prone, aimErr(+T), re
 
 - Rule of thumb: anything written by >1 module lives in S; module-private state stays local.
 - `worldReady`/`pendingLoads` drive the boot loader (kept in S to dodge a world⇄menu import cycle).
-- `settings` = `{ strafLock, laptop, aimAssist:1.12, brain:false, showFps:false }` (persisted: gault_laptop, gault_aimassist, gault_brainassist, gault_showfps). `brain` = tank-style aim assist while straf; `showFps` = FPS counter beside `#info` version.
+- `settings` = `{ strafLock, laptop, aimAssist:1.12, brain:false, showFps:false, ca:true }` (persisted: gault_laptop, gault_aimassist, gault_brainassist, gault_showfps, gault_ca). `brain` = tank-style aim assist while straf; `showFps` = FPS counter beside `#info` version; `ca` = chromatic-aberration post effect (settings checkbox, default on).
 - `missionDiff` = `easy|normal|hard|veteran` (persisted `gault_difficulty`, default `normal`); `missionActive` bool set by `mission.js:setMissionMapReady`.
 
 ### audio.js
@@ -508,7 +508,7 @@ The MULTIPLAYER menu becomes a 1v1 match once the net session connects. Host pic
 ## Rendering pipeline
 1. World → low-res `rt` (PIXEL_SCALE=4 `// 5/6 saves 40% fill`, nearest, shadows `1024 PCF` `autoUpdate:false` `mediump` statics `matrixAutoUpdate:false`, merged walls/blocks, walls `LineSegments`).
 2. gunScene on top, depth cleared.
-3. Post: CA `uCA` + desat/posterize/grain + shockwaves `uShock[4]`; `renderer.compile` once, `info.autoReset:false`.
+3. Post: CA `uCA` × `uCAEnabled` (settings toggle) + desat/posterize/grain + shockwaves `uShock[4]`; `renderer.compile` once, `info.autoReset:false`.
 
 ## Conventions gotchas
 - glTF maps decoded as LinearEncoding (`fixGun`) — old renderer renders sRGB maps ~2.2x dark otherwise.

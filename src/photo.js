@@ -49,7 +49,9 @@ export function enterPhoto(){
   S.paused = true;
   savedFov = camera.fov; savedCA = postMat.uniforms.uCA.value; savedVhs = postMat.uniforms.uVhs.value; savedNoise = postMat.uniforms.uNoise.value;
   inFov.value = Math.round(camera.fov); inCA.value = savedCA.toFixed(2); inVhs.value = savedVhs; inNoise.value = savedNoise;
+  inCA.disabled = !S.settings.ca;
   syncLabels();
+  if (!S.settings.ca) pvCA.textContent = 'OFF';
   wrap.style.display = 'flex';
   msg.textContent = '';
   requestLock();
